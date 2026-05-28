@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import bcrypt
-from sqlalchemy import DateTime, String, Text, create_engine, func
+from sqlalchemy import DateTime, String, Text, create_engine, func, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
@@ -35,6 +35,7 @@ class Company(Base):
     name: Mapped[str] = mapped_column(String(140), nullable=False)
     company_type: Mapped[str] = mapped_column(String(80), nullable=False)
     company_class: Mapped[str] = mapped_column(String(120), nullable=False)
+    sub_category: Mapped[str | None] = mapped_column(String(120), nullable=True)
     status: Mapped[str] = mapped_column(String(40), default="active", nullable=False)
     city: Mapped[str | None] = mapped_column(String(100), nullable=True)
     state: Mapped[str | None] = mapped_column(String(100), nullable=True)
@@ -52,6 +53,12 @@ def verify_password(value: str, hashed: str) -> bool:
 
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
+    # Migrate: add sub_category column to existing databases
+    with engine.connect() as conn:
+        cols = [row[1] for row in conn.execute(text("PRAGMA table_info(companies)")).fetchall()]
+        if "sub_category" not in cols:
+            conn.execute(text("ALTER TABLE companies ADD COLUMN sub_category VARCHAR(120)"))
+            conn.commit()
     with SessionLocal() as session:
         admin = session.query(User).filter(User.username == "admin").first()
         if not admin:

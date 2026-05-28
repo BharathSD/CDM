@@ -18,6 +18,15 @@ class PortalState(rx.State):
     search_query: str = ""
     companies: list[dict] = []
 
+    # Add company form
+    show_add_form: bool = False
+    form_cin: str = ""
+    form_name: str = ""
+    form_class: str = ""
+    form_category: str = ""
+    form_sub_category: str = ""
+    form_error: str = ""
+
     def handle_username_change(self, value: str):
         self.username = value
 
@@ -68,14 +77,88 @@ class PortalState(rx.State):
                     "id": str(item.id),
                     "cin": item.cin,
                     "name": item.name,
-                    "type": item.company_type,
-                    "class": item.company_class,
-                    "status": item.status,
-                    "city": item.city or "-",
-                    "state": item.state or "-",
+                    "class": item.company_class or "-",
+                    "category": item.company_type or "-",
+                    "sub_category": item.sub_category or "-",
                 }
                 for item in rows
             ]
+
+    def handle_form_cin_change(self, value: str):
+        self.form_cin = value
+
+    def handle_form_name_change(self, value: str):
+        self.form_name = value
+
+    def handle_form_class_change(self, value: str):
+        self.form_class = value
+
+    def handle_form_category_change(self, value: str):
+        self.form_category = value
+
+    def handle_form_sub_category_change(self, value: str):
+        self.form_sub_category = value
+
+    def open_add_form(self):
+        self.form_cin = ""
+        self.form_name = ""
+        self.form_class = ""
+        self.form_category = ""
+        self.form_sub_category = ""
+        self.form_error = ""
+        self.show_add_form = True
+
+    def close_add_form(self):
+        self.show_add_form = False
+        self.form_error = ""
+
+    def delete_company(self, company_id: str):
+        if self.role != "ADMIN":
+            return
+        with SessionLocal() as session:
+            company = session.query(Company).filter(Company.id == int(company_id)).first()
+            if company:
+                session.delete(company)
+                session.commit()
+        return PortalState.load_companies()
+
+    def save_company(self):
+        if self.role not in ("ADMIN", "EDITOR"):
+            self.form_error = "You do not have permission to add companies."
+            return
+
+        cin = self.form_cin.strip()
+        name = self.form_name.strip()
+        company_class = self.form_class.strip()
+        company_category = self.form_category.strip()
+        company_sub_category = self.form_sub_category.strip()
+
+        if not cin or not name or not company_class or not company_category or not company_sub_category:
+            self.form_error = "All fields are required."
+            return
+
+        with SessionLocal() as session:
+            existing = session.query(Company).filter(Company.cin == cin).first()
+            if existing:
+                self.form_error = f"CIN '{cin}' already exists."
+                return
+            session.add(Company(
+                cin=cin,
+                name=name,
+                company_class=company_class,
+                company_type=company_category,
+                sub_category=company_sub_category,
+            ))
+            session.commit()
+
+        self.show_add_form = False
+        self.form_cin = ""
+        self.form_name = ""
+        self.form_class = ""
+        self.form_category = ""
+        self.form_sub_category = ""
+        self.form_error = ""
+        return PortalState.load_companies()
 
 
 def login_page() -> rx.Component:
@@ -220,17 +303,150 @@ def login_page() -> rx.Component:
     )
 
 
+def _form_input(label: str, placeholder: str, value, on_change) -> rx.Component:
+    return rx.vstack(
+        rx.text(label, size="2", weight="bold", color="#333"),
+        rx.el.input(
+            placeholder=placeholder,
+            value=value,
+            on_change=on_change,
+            type="text",
+            style={
+                "width": "100%",
+                "padding": "0.625rem 0.875rem",
+                "border_radius": "0.5rem",
+                "border": "2px solid #d0d0d0",
+                "background_color": "white",
+                "font_size": "0.95rem",
+                "color": "black",
+                "outline": "none",
+                "box_sizing": "border-box",
+            },
+        ),
+        spacing="1",
+        width="100%",
+    )
+
+
+def _form_select(label: str, options: list, value, on_change) -> rx.Component:
+    return rx.vstack(
+        rx.text(label, size="2", weight="bold", color="#333"),
+        rx.select(
+            options,
+            placeholder="-- Select --",
+            value=value,
+            on_change=on_change,
+            width="100%",
+        ),
+        spacing="1",
+        width="100%",
+    )
+
+
+def add_company_dialog() -> rx.Component:
+    return rx.cond(
+        PortalState.show_add_form,
+        rx.box(
+            rx.box(
+                rx.vstack(
+                    rx.hstack(
+                        rx.icon("building-2", size=22, color="#667eea"),
+                        rx.heading("Add Company", size="5", color="#1a1a1a", weight="bold"),
+                        rx.spacer(),
+                        rx.button(
+                            rx.icon("x", size=18),
+                            on_click=PortalState.close_add_form,
+                            variant="ghost",
+                            size="1",
+                        ),
+                        width="100%",
+                        align_items="center",
+                    ),
+                    rx.divider(),
+                    _form_input("CIN", "e.g. U74999MH2021PTC123456", PortalState.form_cin, PortalState.handle_form_cin_change),
+                    _form_input("Company Name", "Enter company name", PortalState.form_name, PortalState.handle_form_name_change),
+                    _form_select("Class", ["PUBLIC", "PRIVATE"], PortalState.form_class, PortalState.handle_form_class_change),
+                    _form_select("Category", ["Company limited by Shares"], PortalState.form_category, PortalState.handle_form_category_change),
+                    _form_select(
+                        "Sub Category",
+                        [
+                            "Non-government company",
+                            "State government company",
+                            "Union government company",
+                            "Subsidiary of company incorporated outside India",
+                        ],
+                        PortalState.form_sub_category,
+                        PortalState.handle_form_sub_category_change,
+                    ),
+                    rx.cond(
+                        PortalState.form_error != "",
+                        rx.box(
+                            rx.hstack(
+                                rx.icon("circle-alert", size=16, color="#dc2626"),
+                                rx.text(PortalState.form_error, size="2", color="#dc2626"),
+                                spacing="2",
+                            ),
+                            padding="0.75rem",
+                            border_radius="0.5rem",
+                            background="#fee2e2",
+                            border_left="4px solid #dc2626",
+                            width="100%",
+                        ),
+                    ),
+                    rx.hstack(
+                        rx.button(
+                            "Cancel",
+                            on_click=PortalState.close_add_form,
+                            variant="outline",
+                            color_scheme="gray",
+                            size="3",
+                        ),
+                        rx.button(
+                            rx.hstack(rx.icon("save", size=16), rx.text("Save Company"), spacing="2"),
+                            on_click=PortalState.save_company,
+                            background="linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                            color="white",
+                            size="3",
+                        ),
+                        spacing="3",
+                        justify="end",
+                        width="100%",
+                        padding_top="0.5rem",
+                    ),
+                    spacing="4",
+                    width="100%",
+                ),
+                background="white",
+                border_radius="0.75rem",
+                padding="2rem",
+                max_width="500px",
+                width="90%",
+                box_shadow="0 20px 60px rgba(0,0,0,0.3)",
+            ),
+            position="fixed",
+            top="0",
+            left="0",
+            width="100vw",
+            height="100vh",
+            background="rgba(0,0,0,0.5)",
+            z_index="1000",
+            display="flex",
+            align_items="center",
+            justify_content="center",
+        ),
+    )
+
+
 def companies_table() -> rx.Component:
     return rx.table.root(
         rx.table.header(
             rx.table.row(
                 rx.table.column_header_cell("CIN", font_weight="700", color="white", font_size="0.95rem"),
                 rx.table.column_header_cell("Company Name", font_weight="700", color="white", font_size="0.95rem"),
-                rx.table.column_header_cell("Type", font_weight="700", color="white", font_size="0.95rem"),
                 rx.table.column_header_cell("Class", font_weight="700", color="white", font_size="0.95rem"),
-                rx.table.column_header_cell("Status", font_weight="700", color="white", font_size="0.95rem"),
-                rx.table.column_header_cell("City", font_weight="700", color="white", font_size="0.95rem"),
-                rx.table.column_header_cell("State", font_weight="700", color="white", font_size="0.95rem"),
+                rx.table.column_header_cell("Category", font_weight="700", color="white", font_size="0.95rem"),
+                rx.table.column_header_cell("Sub Category", font_weight="700", color="white", font_size="0.95rem"),
+                rx.table.column_header_cell("", width="60px"),
             ),
             background="linear-gradient(90deg, #667eea 0%, #764ba2 100%)",
             padding="1rem",
@@ -241,17 +457,21 @@ def companies_table() -> rx.Component:
                 lambda item: rx.table.row(
                     rx.table.cell(rx.text(item["cin"], font_weight="600", color="#1a1a1a", size="3")),
                     rx.table.cell(rx.text(item["name"], font_weight="500", color="#333", size="3")),
-                    rx.table.cell(rx.badge(item["type"], variant="outline", color_scheme="cyan")),
-                    rx.table.cell(rx.badge(item["class"], variant="outline", color_scheme="indigo")),
+                    rx.table.cell(rx.badge(item["class"], variant="outline", color_scheme="violet")),
+                    rx.table.cell(rx.badge(item["category"], variant="outline", color_scheme="cyan")),
+                    rx.table.cell(rx.text(item["sub_category"], color="#555", size="2")),
                     rx.table.cell(
                         rx.cond(
-                            item["status"] == "active",
-                            rx.badge("✓ Active", color_scheme="green", variant="surface"),
-                            rx.badge("○ Inactive", color_scheme="gray", variant="surface"),
-                        )
+                            PortalState.role == "ADMIN",
+                            rx.icon_button(
+                                rx.icon("trash-2", size=14),
+                                on_click=PortalState.delete_company(item["id"]),
+                                color_scheme="red",
+                                variant="ghost",
+                                size="1",
+                            ),
+                        ),
                     ),
-                    rx.table.cell(rx.text(item["city"], color="#555", size="2")),
-                    rx.table.cell(rx.text(item["state"], color="#555", size="2")),
                     _hover={"background": "rgba(102,126,234,0.04)"},
                     border_bottom="1px solid #f0f0f0",
                     padding="1rem",
@@ -389,8 +609,19 @@ def dashboard_page() -> rx.Component:
                                 rx.text(f"{PortalState.companies.length()} companies", size="1", color="#999"),
                                 spacing="1",
                             ),
+                            rx.spacer(),
+                            rx.cond(
+                                (PortalState.role == "ADMIN") | (PortalState.role == "EDITOR"),
+                                rx.button(
+                                    rx.hstack(rx.icon("plus", size=16), rx.text("Add Company"), spacing="2"),
+                                    on_click=PortalState.open_add_form,
+                                    background="linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                                    color="white",
+                                    size="2",
+                                ),
+                            ),
                             width="100%",
-                            align_items="flex-start",
+                            align_items="center",
                         ),
                         companies_table(),
                         spacing="4",
@@ -409,8 +640,8 @@ def dashboard_page() -> rx.Component:
             spacing="0",
             width="100%",
             height="100vh",
-            on_mount=PortalState.load_companies,
         ),
+        add_company_dialog(),
         background="#f5f7fa",
         width="100%",
         padding="0",
