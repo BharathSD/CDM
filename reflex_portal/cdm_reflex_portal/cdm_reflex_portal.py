@@ -112,16 +112,6 @@ class PortalState(rx.State):
         self.show_add_form = False
         self.form_error = ""
 
-    def delete_company(self, company_id: str):
-        if self.role != "ADMIN":
-            return
-        with SessionLocal() as session:
-            company = session.query(Company).filter(Company.id == int(company_id)).first()
-            if company:
-                session.delete(company)
-                session.commit()
-        return PortalState.load_companies()
-
     def save_company(self):
         if self.role not in ("ADMIN", "EDITOR"):
             self.form_error = "You do not have permission to add companies."
@@ -158,7 +148,23 @@ class PortalState(rx.State):
         self.form_category = ""
         self.form_sub_category = ""
         self.form_error = ""
-        return PortalState.load_companies()
+        self.load_companies()
+
+    def confirm_delete(self, company_id: str):
+        if self.role not in ("ADMIN", "EDITOR"):
+            self.error_message = "You do not have permission to delete companies."
+            return
+        try:
+            cid = int(company_id)
+        except (ValueError, TypeError):
+            self.error_message = f"Delete failed: invalid company ID '{company_id}'."
+            return
+        with SessionLocal() as session:
+            company = session.query(Company).filter(Company.id == cid).first()
+            if company:
+                session.delete(company)
+                session.commit()
+        self.load_companies()
 
 
 def login_page() -> rx.Component:
@@ -446,7 +452,7 @@ def companies_table() -> rx.Component:
                 rx.table.column_header_cell("Class", font_weight="700", color="white", font_size="0.95rem"),
                 rx.table.column_header_cell("Category", font_weight="700", color="white", font_size="0.95rem"),
                 rx.table.column_header_cell("Sub Category", font_weight="700", color="white", font_size="0.95rem"),
-                rx.table.column_header_cell("", width="60px"),
+                rx.table.column_header_cell("Actions", font_weight="700", color="white", font_size="0.95rem"),
             ),
             background="linear-gradient(90deg, #667eea 0%, #764ba2 100%)",
             padding="1rem",
@@ -462,15 +468,68 @@ def companies_table() -> rx.Component:
                     rx.table.cell(rx.text(item["sub_category"], color="#555", size="2")),
                     rx.table.cell(
                         rx.cond(
-                            PortalState.role == "ADMIN",
-                            rx.icon_button(
-                                rx.icon("trash-2", size=14),
-                                on_click=PortalState.delete_company(item["id"]),
-                                color_scheme="red",
-                                variant="ghost",
-                                size="1",
+                            (PortalState.role == "ADMIN") | (PortalState.role == "EDITOR"),
+                            rx.dialog.root(
+                                rx.dialog.trigger(
+                                    rx.button(
+                                        rx.icon("trash-2", size=14),
+                                        color_scheme="red",
+                                        variant="ghost",
+                                        size="1",
+                                    ),
+                                ),
+                                rx.dialog.content(
+                                    rx.vstack(
+                                        rx.hstack(
+                                            rx.icon("triangle-alert", size=22, color="#dc2626"),
+                                            rx.dialog.title(
+                                                "Delete Company",
+                                                size="5",
+                                                weight="bold",
+                                                color="#1a1a1a",
+                                            ),
+                                            spacing="2",
+                                            align_items="center",
+                                        ),
+                                        rx.divider(),
+                                        rx.dialog.description(
+                                            rx.text(
+                                                "Are you sure you want to permanently delete ",
+                                                rx.text.strong(item["name"]),
+                                                "? This action cannot be undone.",
+                                                size="3",
+                                                color="#333",
+                                            ),
+                                        ),
+                                        rx.hstack(
+                                            rx.dialog.close(
+                                                rx.button(
+                                                    "Cancel",
+                                                    variant="outline",
+                                                    color_scheme="gray",
+                                                    size="3",
+                                                ),
+                                            ),
+                                            rx.dialog.close(
+                                                rx.button(
+                                                    rx.hstack(rx.icon("trash-2", size=16), rx.text("Delete"), spacing="2"),
+                                                    on_click=PortalState.confirm_delete(item["id"]),
+                                                    color_scheme="red",
+                                                    size="3",
+                                                ),
+                                            ),
+                                            spacing="3",
+                                            justify="end",
+                                            width="100%",
+                                            padding_top="0.5rem",
+                                        ),
+                                        spacing="4",
+                                        width="100%",
+                                    ),
+                                    max_width="420px",
+                                ),
                             ),
-                        ),
+                        )
                     ),
                     _hover={"background": "rgba(102,126,234,0.04)"},
                     border_bottom="1px solid #f0f0f0",
@@ -640,6 +699,7 @@ def dashboard_page() -> rx.Component:
             spacing="0",
             width="100%",
             height="100vh",
+            on_mount=PortalState.load_companies,
         ),
         add_company_dialog(),
         background="#f5f7fa",
