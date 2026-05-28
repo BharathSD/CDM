@@ -1,0 +1,55 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  EDITOR
+  VIEWER
+}
+
+model User {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  passwordHash String
+  role         Role     @default(VIEWER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  createdCompanies Company[] @relation("CreatedCompanies")
+  updatedCompanies Company[] @relation("UpdatedCompanies")
+}
+
+model Company {
+  id               String   @id @default(cuid())
+  cin              String   @unique
+  name             String
+  type             String
+  companyClass     String
+  status           String   @default("active")
+  registrationDate DateTime?
+  contactEmail     String?
+  contactPhone     String?
+  registeredAddress String?
+  city             String?
+  state            String?
+  pincode          String?
+  panNumber        String?
+  gstNumber        String?
+  notes            String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  createdById      String
+  updatedById      String
+
+  createdBy User @relation("CreatedCompanies", fields: [createdById], references: [id])
+  updatedBy User @relation("UpdatedCompanies", fields: [updatedById], references: [id])
+
+  @@index([name])
+  @@index([cin])
+}

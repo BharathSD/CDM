@@ -1,0 +1,16 @@
+node_modules
+.env
+.env.*
+!.env.example
+apps/api/dist
+apps/web/dist
+apps/api/prisma/dev.db
+apps/api/prisma/dev.db-journal
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.pyo
+reflex_portal/.web/
+reflex_portal/data/
