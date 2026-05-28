@@ -27,6 +27,10 @@ class PortalState(rx.State):
     def handle_search_input(self, value: str):
         self.search_query = value
 
+    def handle_key_down(self, key: str):
+        if key == "Enter":
+            return PortalState.handle_login()
+
     def handle_login(self):
         with SessionLocal() as session:
             user = session.query(User).filter(User.username == self.username.strip()).first()
@@ -94,17 +98,17 @@ def login_page() -> rx.Component:
             ),
             rx.vstack(
                 rx.hstack(
-                    rx.icon("check-circle", size=24, color="white"),
+                    rx.icon("circle-check", size=24, color="white"),
                     rx.text("Streamlined company registry", color="rgba(255,255,255,0.9)", size="3"),
                     spacing="2",
                 ),
                 rx.hstack(
-                    rx.icon("check-circle", size=24, color="white"),
+                    rx.icon("circle-check", size=24, color="white"),
                     rx.text("Secure access control", color="rgba(255,255,255,0.9)", size="3"),
                     spacing="2",
                 ),
                 rx.hstack(
-                    rx.icon("check-circle", size=24, color="white"),
+                    rx.icon("circle-check", size=24, color="white"),
                     rx.text("Real-time information tracking", color="rgba(255,255,255,0.9)", size="3"),
                     spacing="2",
                 ),
@@ -128,40 +132,47 @@ def login_page() -> rx.Component:
             rx.vstack(
                 rx.vstack(
                     rx.text("Username", size="2", weight="bold", color="#333"),
-                    rx.input(
+                    rx.el.input(
                         placeholder="admin",
                         value=PortalState.username,
                         on_change=PortalState.handle_username_change,
-                        width="100%",
-                        padding="0.875rem 1rem",
-                        border_radius="0.625rem",
-                        border="2px solid #e0e0e0",
-                        background="white",
-                        font_size="1rem",
-                        color="#1a1a1a",
-                        font_weight="500",
-                        _focus={"border_color": "#667eea", "box_shadow": "0 0 0 4px rgba(102,126,234,0.1)"},
-                        _placeholder={"color": "#999"},
+                        on_key_down=PortalState.handle_key_down,
+                        type="text",
+                        style={
+                            "width": "100%",
+                            "padding": "0.875rem 1rem",
+                            "border_radius": "0.625rem",
+                            "border": "2px solid #999",
+                            "background_color": "white",
+                            "font_size": "1rem",
+                            "font_weight": "500",
+                            "color": "black",
+                            "outline": "none",
+                            "box_sizing": "border-box",
+                        },
                     ),
                     spacing="1",
                 ),
                 rx.vstack(
                     rx.text("Password", size="2", weight="bold", color="#333"),
-                    rx.input(
-                        placeholder="••••••••",
-                        type="password",
+                    rx.el.input(
+                        placeholder="Password",
                         value=PortalState.password,
                         on_change=PortalState.handle_password_change,
-                        width="100%",
-                        padding="0.875rem 1rem",
-                        border_radius="0.625rem",
-                        border="2px solid #e0e0e0",
-                        background="white",
-                        font_size="1rem",
-                        color="#1a1a1a",
-                        font_weight="500",
-                        _focus={"border_color": "#667eea", "box_shadow": "0 0 0 4px rgba(102,126,234,0.1)"},
-                        _placeholder={"color": "#999"},
+                        on_key_down=PortalState.handle_key_down,
+                        type="password",
+                        style={
+                            "width": "100%",
+                            "padding": "0.875rem 1rem",
+                            "border_radius": "0.625rem",
+                            "border": "2px solid #999",
+                            "background_color": "white",
+                            "font_size": "1rem",
+                            "font_weight": "500",
+                            "color": "black",
+                            "outline": "none",
+                            "box_sizing": "border-box",
+                        },
                     ),
                     spacing="1",
                 ),
@@ -172,7 +183,7 @@ def login_page() -> rx.Component:
                 PortalState.error_message != "",
                 rx.box(
                     rx.hstack(
-                        rx.icon("alert-circle", size=20, color="#dc2626"),
+                        rx.icon("circle-alert", size=20, color="#dc2626"),
                         rx.text(PortalState.error_message, size="2", color="#dc2626"),
                         spacing="2",
                     ),
@@ -356,7 +367,7 @@ def dashboard_page() -> rx.Component:
                     PortalState.error_message != "",
                     rx.box(
                         rx.hstack(
-                            rx.icon("alert-circle", size=20, color="#dc2626"),
+                            rx.icon("circle-alert", size=20, color="#dc2626"),
                             rx.text(PortalState.error_message, size="2", color="#dc2626", weight="medium"),
                             spacing="2",
                             width="100%",
