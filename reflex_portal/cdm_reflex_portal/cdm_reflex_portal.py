@@ -397,12 +397,24 @@ def _form_input(label: str, placeholder: str, value, on_change) -> rx.Component:
 def _form_select(label: str, options: list, value, on_change) -> rx.Component:
     return rx.vstack(
         rx.text(label, size="2", weight="bold", color="#333"),
-        rx.select(
-            options,
-            placeholder="-- Select --",
+        rx.el.select(
+            rx.el.option("-- Select --", value="", disabled=True),
+            *[rx.el.option(o, value=o) for o in options],
             value=value,
             on_change=on_change,
-            width="100%",
+            style={
+                "width": "100%",
+                "padding": "0.625rem 0.875rem",
+                "border_radius": "0.5rem",
+                "border": "2px solid #d0d0d0",
+                "background_color": "white",
+                "font_size": "0.95rem",
+                "color": "#111111",
+                "outline": "none",
+                "box_sizing": "border-box",
+                "cursor": "pointer",
+                "appearance": "auto",
+            },
         ),
         spacing="1",
         width="100%",
