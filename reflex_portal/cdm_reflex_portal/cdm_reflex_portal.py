@@ -22,6 +22,13 @@ class PortalState(rx.State):
     filter_classes: list[str] = []
     filter_categories: list[str] = []
     filter_sub_categories: list[str] = []
+    # filter dropdown UI state
+    class_dropdown_open: bool = False
+    category_dropdown_open: bool = False
+    sub_category_dropdown_open: bool = False
+    class_search: str = ""
+    category_search: str = ""
+    sub_category_search: str = ""
     companies: list[dict] = []
 
     # ── Add-company form ──────────────────────────────────────────────────────
@@ -99,6 +106,37 @@ class PortalState(rx.State):
         self.edit_user_form_password = ""
         self.edit_user_form_error = ""
 
+    # ── Computed vars ─────────────────────────────────────────────────────────
+
+    @rx.var
+    def filtered_class_options(self) -> list[str]:
+        options = ["PUBLIC", "PRIVATE"]
+        if not self.class_search.strip():
+            return options
+        term = self.class_search.strip().lower()
+        return [o for o in options if term in o.lower()]
+
+    @rx.var
+    def filtered_category_options(self) -> list[str]:
+        options = ["Company limited by Shares"]
+        if not self.category_search.strip():
+            return options
+        term = self.category_search.strip().lower()
+        return [o for o in options if term in o.lower()]
+
+    @rx.var
+    def filtered_sub_category_options(self) -> list[str]:
+        options = [
+            "Non-government company",
+            "State government company",
+            "Union government company",
+            "Subsidiary of company incorporated outside India",
+        ]
+        if not self.sub_category_search.strip():
+            return options
+        term = self.sub_category_search.strip().lower()
+        return [o for o in options if term in o.lower()]
+
     # ── Page lifecycle ────────────────────────────────────────────────────────
 
     def on_page_load(self):
@@ -159,6 +197,12 @@ class PortalState(rx.State):
         self.filter_classes = []
         self.filter_categories = []
         self.filter_sub_categories = []
+        self.class_dropdown_open = False
+        self.category_dropdown_open = False
+        self.sub_category_dropdown_open = False
+        self.class_search = ""
+        self.category_search = ""
+        self.sub_category_search = ""
         self._clear_edit_company_form()
         self._clear_edit_user_form()
 
@@ -176,34 +220,112 @@ class PortalState(rx.State):
             self.load_companies()
 
     def toggle_filter_class(self, value: str, checked: bool):
+        _all_opts = ["PUBLIC", "PRIVATE"]
+        if value == "ALL":
+            self.filter_classes = []
+            self.load_companies()
+            return
         if checked:
             if value not in self.filter_classes:
-                self.filter_classes = self.filter_classes + [value]
+                new_list = self.filter_classes + [value]
+                # If every option is now ticked, revert to "all" mode
+                self.filter_classes = [] if sorted(new_list) == sorted(_all_opts) else new_list
         else:
-            self.filter_classes = [v for v in self.filter_classes if v != value]
+            if not self.filter_classes:
+                # Was in "all" mode – switch to all-except-this
+                self.filter_classes = [o for o in _all_opts if o != value]
+            else:
+                self.filter_classes = [v for v in self.filter_classes if v != value]
         self.load_companies()
 
     def toggle_filter_category(self, value: str, checked: bool):
+        _all_opts = ["Company limited by Shares"]
+        if value == "ALL":
+            self.filter_categories = []
+            self.load_companies()
+            return
         if checked:
             if value not in self.filter_categories:
-                self.filter_categories = self.filter_categories + [value]
+                new_list = self.filter_categories + [value]
+                self.filter_categories = [] if sorted(new_list) == sorted(_all_opts) else new_list
         else:
-            self.filter_categories = [v for v in self.filter_categories if v != value]
+            if not self.filter_categories:
+                self.filter_categories = [o for o in _all_opts if o != value]
+            else:
+                self.filter_categories = [v for v in self.filter_categories if v != value]
         self.load_companies()
 
     def toggle_filter_sub_category(self, value: str, checked: bool):
+        _all_opts = [
+            "Non-government company",
+            "State government company",
+            "Union government company",
+            "Subsidiary of company incorporated outside India",
+        ]
+        if value == "ALL":
+            self.filter_sub_categories = []
+            self.load_companies()
+            return
         if checked:
             if value not in self.filter_sub_categories:
-                self.filter_sub_categories = self.filter_sub_categories + [value]
+                new_list = self.filter_sub_categories + [value]
+                self.filter_sub_categories = [] if sorted(new_list) == sorted(_all_opts) else new_list
         else:
-            self.filter_sub_categories = [v for v in self.filter_sub_categories if v != value]
+            if not self.filter_sub_categories:
+                self.filter_sub_categories = [o for o in _all_opts if o != value]
+            else:
+                self.filter_sub_categories = [v for v in self.filter_sub_categories if v != value]
         self.load_companies()
 
     def clear_filters(self):
         self.filter_classes = []
         self.filter_categories = []
         self.filter_sub_categories = []
+        self.class_dropdown_open = False
+        self.category_dropdown_open = False
+        self.sub_category_dropdown_open = False
+        self.class_search = ""
+        self.category_search = ""
+        self.sub_category_search = ""
         self.load_companies()
+
+    def toggle_class_dropdown(self):
+        self.class_dropdown_open = not self.class_dropdown_open
+        self.category_dropdown_open = False
+        self.sub_category_dropdown_open = False
+        if not self.class_dropdown_open:
+            self.class_search = ""
+
+    def toggle_category_dropdown(self):
+        self.category_dropdown_open = not self.category_dropdown_open
+        self.class_dropdown_open = False
+        self.sub_category_dropdown_open = False
+        if not self.category_dropdown_open:
+            self.category_search = ""
+
+    def toggle_sub_category_dropdown(self):
+        self.sub_category_dropdown_open = not self.sub_category_dropdown_open
+        self.class_dropdown_open = False
+        self.category_dropdown_open = False
+        if not self.sub_category_dropdown_open:
+            self.sub_category_search = ""
+
+    def handle_class_search(self, value: str):
+        self.class_search = value
+
+    def handle_category_search(self, value: str):
+        self.category_search = value
+
+    def handle_sub_category_search(self, value: str):
+        self.sub_category_search = value
+
+    def close_all_dropdowns(self):
+        self.class_dropdown_open = False
+        self.category_dropdown_open = False
+        self.sub_category_dropdown_open = False
+        self.class_search = ""
+        self.category_search = ""
+        self.sub_category_search = ""
 
     def load_companies(self):
         with SessionLocal() as session:
@@ -1038,12 +1160,31 @@ def companies_table() -> rx.Component:
                                             ),
                                             rx.divider(),
                                             rx.dialog.description(
-                                                rx.text(
-                                                    "Are you sure you want to permanently delete ",
-                                                    rx.text.strong(item["name"]),
-                                                    "? This action cannot be undone.",
-                                                    size="3",
-                                                    color="#333",
+                                                rx.vstack(
+                                                    rx.text(
+                                                        "Are you sure you want to permanently delete this company? This action cannot be undone.",
+                                                        size="3",
+                                                        color="#333",
+                                                    ),
+                                                    rx.box(
+                                                        rx.hstack(
+                                                            rx.text("CIN:", size="2", weight="bold", color="#555"),
+                                                            rx.text(item["cin"], size="2", color="#1a1a1a"),
+                                                            spacing="2",
+                                                        ),
+                                                        rx.hstack(
+                                                            rx.text("Name:", size="2", weight="bold", color="#555"),
+                                                            rx.text(item["name"], size="2", color="#1a1a1a"),
+                                                            spacing="2",
+                                                        ),
+                                                        padding="0.75rem",
+                                                        background="#f5f5f5",
+                                                        border_radius="0.5rem",
+                                                        border_left="3px solid #dc2626",
+                                                        width="100%",
+                                                    ),
+                                                    spacing="3",
+                                                    width="100%",
                                                 ),
                                             ),
                                             rx.hstack(
@@ -1072,6 +1213,7 @@ def companies_table() -> rx.Component:
                                             width="100%",
                                         ),
                                         max_width="420px",
+                                        background="white",
                                     ),
                                 ),
                                 spacing="1",
@@ -1181,6 +1323,7 @@ def users_table() -> rx.Component:
                                             width="100%",
                                         ),
                                         max_width="420px",
+                                        background="white",
                                     ),
                                 ),
                             ),
@@ -1382,9 +1525,136 @@ def admin_panel() -> rx.Component:
     )
 
 
+def _filter_dropdown(
+    label: str,
+    is_open,
+    toggle_handler,
+    search_value,
+    search_handler,
+    options_var,
+    selected_var,
+    toggle_option_handler,
+) -> rx.Component:
+    return rx.box(
+        rx.button(
+            rx.hstack(
+                rx.text(
+                    label,
+                    size="1",
+                    weight="medium",
+                    color=rx.cond(selected_var.length() > 0, "#667eea", "#444"),
+                ),
+                rx.cond(
+                    selected_var.length() > 0,
+                    rx.badge(selected_var.length(), color_scheme="violet", variant="solid", size="1"),
+                ),
+                rx.cond(
+                    is_open,
+                    rx.icon("chevron-up", size=12, color="#666"),
+                    rx.icon("chevron-down", size=12, color="#666"),
+                ),
+                spacing="1",
+                align_items="center",
+            ),
+            on_click=toggle_handler,
+            variant="outline",
+            size="1",
+            style={
+                "border": rx.cond(selected_var.length() > 0, "1.5px solid #667eea", "1.5px solid #d0d0d0"),
+                "background": "white",
+                "cursor": "pointer",
+                "border_radius": "0.5rem",
+                "padding": "0.375rem 0.75rem",
+                "min_width": "100px",
+            },
+        ),
+        rx.cond(
+            is_open,
+            rx.box(
+                rx.vstack(
+                    rx.el.input(
+                        placeholder="Search...",
+                        value=search_value,
+                        on_change=search_handler,
+                        type="text",
+                        style={
+                            "width": "100%",
+                            "padding": "0.375rem 0.625rem",
+                            "border_radius": "0.375rem",
+                            "border": "1.5px solid #d0d0d0",
+                            "background_color": "white",
+                            "font_size": "0.8rem",
+                            "color": "#1a1a1a",
+                            "outline": "none",
+                            "box_sizing": "border-box",
+                        },
+                    ),
+                    rx.vstack(
+                        rx.hstack(
+                            rx.checkbox(
+                                checked=selected_var.length() == 0,
+                                on_change=toggle_option_handler("ALL"),
+                                size="1",
+                            ),
+                            rx.text("All", size="1", color="#1a1a1a", weight="medium"),
+                            spacing="2",
+                            align_items="center",
+                        ),
+                        rx.divider(margin_y="0.25rem"),
+                        rx.foreach(
+                            options_var,
+                            lambda opt: rx.hstack(
+                                rx.checkbox(
+                                    checked=(selected_var.length() == 0) | selected_var.contains(opt),
+                                    on_change=toggle_option_handler(opt),
+                                    size="1",
+                                ),
+                                rx.text(opt, size="1", color="#1a1a1a"),
+                                spacing="2",
+                                align_items="center",
+                            ),
+                        ),
+                        spacing="2",
+                        align_items="start",
+                        max_height="180px",
+                        overflow_y="auto",
+                        width="100%",
+                    ),
+                    spacing="2",
+                    padding="0.625rem",
+                    width="100%",
+                ),
+                position="absolute",
+                top="calc(100% + 4px)",
+                left="0",
+                min_width="210px",
+                background="white",
+                border_radius="0.5rem",
+                border="1.5px solid #e0e0e0",
+                box_shadow="0 4px 16px rgba(0,0,0,0.12)",
+                z_index="600",
+            ),
+        ),
+        position="relative",
+        display="inline-block",
+    )
+
+
 def companies_section() -> rx.Component:
     return rx.vstack(
-        rx.card(
+        rx.cond(
+            PortalState.class_dropdown_open | PortalState.category_dropdown_open | PortalState.sub_category_dropdown_open,
+            rx.box(
+                position="fixed",
+                top="0",
+                left="0",
+                width="100vw",
+                height="100vh",
+                z_index="499",
+                on_click=PortalState.close_all_dropdowns,
+            ),
+        ),
+        rx.box(
             rx.vstack(
                 rx.hstack(
                     rx.icon("search", size=20, color="#667eea"),
@@ -1429,71 +1699,35 @@ def companies_section() -> rx.Component:
                     align_items="center",
                 ),
                 rx.hstack(
-                    rx.vstack(
-                        rx.text("Class", size="1", weight="bold", color="#666", text_transform="uppercase", letter_spacing="0.05em"),
-                        rx.hstack(
-                            rx.checkbox(
-                                "PUBLIC",
-                                checked=PortalState.filter_classes.contains("PUBLIC"),
-                                on_change=PortalState.toggle_filter_class("PUBLIC"),
-                                size="1",
-                            ),
-                            rx.checkbox(
-                                "PRIVATE",
-                                checked=PortalState.filter_classes.contains("PRIVATE"),
-                                on_change=PortalState.toggle_filter_class("PRIVATE"),
-                                size="1",
-                            ),
-                            spacing="3",
-                            align_items="center",
-                        ),
-                        spacing="2",
-                        align_items="start",
+                    _filter_dropdown(
+                        "Class",
+                        PortalState.class_dropdown_open,
+                        PortalState.toggle_class_dropdown,
+                        PortalState.class_search,
+                        PortalState.handle_class_search,
+                        PortalState.filtered_class_options,
+                        PortalState.filter_classes,
+                        PortalState.toggle_filter_class,
                     ),
-                    rx.vstack(
-                        rx.text("Category", size="1", weight="bold", color="#666", text_transform="uppercase", letter_spacing="0.05em"),
-                        rx.checkbox(
-                            "Limited by Shares",
-                            checked=PortalState.filter_categories.contains("Company limited by Shares"),
-                            on_change=PortalState.toggle_filter_category("Company limited by Shares"),
-                            size="1",
-                        ),
-                        spacing="2",
-                        align_items="start",
+                    _filter_dropdown(
+                        "Category",
+                        PortalState.category_dropdown_open,
+                        PortalState.toggle_category_dropdown,
+                        PortalState.category_search,
+                        PortalState.handle_category_search,
+                        PortalState.filtered_category_options,
+                        PortalState.filter_categories,
+                        PortalState.toggle_filter_category,
                     ),
-                    rx.vstack(
-                        rx.text("Sub Category", size="1", weight="bold", color="#666", text_transform="uppercase", letter_spacing="0.05em"),
-                        rx.hstack(
-                            rx.checkbox(
-                                "Non-govt.",
-                                checked=PortalState.filter_sub_categories.contains("Non-government company"),
-                                on_change=PortalState.toggle_filter_sub_category("Non-government company"),
-                                size="1",
-                            ),
-                            rx.checkbox(
-                                "State govt.",
-                                checked=PortalState.filter_sub_categories.contains("State government company"),
-                                on_change=PortalState.toggle_filter_sub_category("State government company"),
-                                size="1",
-                            ),
-                            rx.checkbox(
-                                "Union govt.",
-                                checked=PortalState.filter_sub_categories.contains("Union government company"),
-                                on_change=PortalState.toggle_filter_sub_category("Union government company"),
-                                size="1",
-                            ),
-                            rx.checkbox(
-                                "Subsidiary",
-                                checked=PortalState.filter_sub_categories.contains("Subsidiary of company incorporated outside India"),
-                                on_change=PortalState.toggle_filter_sub_category("Subsidiary of company incorporated outside India"),
-                                size="1",
-                            ),
-                            spacing="3",
-                            align_items="center",
-                            flex_wrap="wrap",
-                        ),
-                        spacing="2",
-                        align_items="start",
+                    _filter_dropdown(
+                        "Sub Category",
+                        PortalState.sub_category_dropdown_open,
+                        PortalState.toggle_sub_category_dropdown,
+                        PortalState.sub_category_search,
+                        PortalState.handle_sub_category_search,
+                        PortalState.filtered_sub_category_options,
+                        PortalState.filter_sub_categories,
+                        PortalState.toggle_filter_sub_category,
                     ),
                     rx.cond(
                         (PortalState.filter_classes.length() > 0) | (PortalState.filter_categories.length() > 0) | (PortalState.filter_sub_categories.length() > 0),
@@ -1502,23 +1736,26 @@ def companies_section() -> rx.Component:
                             on_click=PortalState.clear_filters,
                             variant="outline",
                             color_scheme="gray",
-                            size="2",
+                            size="1",
                         ),
                     ),
-                    spacing="6",
+                    spacing="3",
                     width="100%",
-                    align_items="start",
+                    align_items="center",
                     flex_wrap="wrap",
                     padding="0.25rem 0",
+                    overflow="visible",
                 ),
                 spacing="4",
                 width="100%",
+                overflow="visible",
             ),
             width="100%",
             padding="1.5rem",
             background="white",
             border_radius="0.75rem",
             box_shadow="0 2px 12px rgba(0,0,0,0.06)",
+            overflow="visible",
         ),
         rx.card(
             rx.vstack(
