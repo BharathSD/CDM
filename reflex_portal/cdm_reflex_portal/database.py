@@ -41,6 +41,9 @@ class Company(Base):
     state: Mapped[str | None] = mapped_column(String(100), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     updated_at: Mapped[str] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    date_of_incorporation: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    address: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 def hash_password(value: str) -> str:
@@ -53,12 +56,19 @@ def verify_password(value: str, hashed: str) -> bool:
 
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
-    # Migrate: add sub_category column to existing databases
+    # Migrate: add columns to existing databases
     with engine.connect() as conn:
         cols = [row[1] for row in conn.execute(text("PRAGMA table_info(companies)")).fetchall()]
-        if "sub_category" not in cols:
-            conn.execute(text("ALTER TABLE companies ADD COLUMN sub_category VARCHAR(120)"))
-            conn.commit()
+        migrations = [
+            ("sub_category", "ALTER TABLE companies ADD COLUMN sub_category VARCHAR(120)"),
+            ("date_of_incorporation", "ALTER TABLE companies ADD COLUMN date_of_incorporation VARCHAR(20)"),
+            ("email", "ALTER TABLE companies ADD COLUMN email VARCHAR(254)"),
+            ("address", "ALTER TABLE companies ADD COLUMN address TEXT"),
+        ]
+        for col_name, ddl in migrations:
+            if col_name not in cols:
+                conn.execute(text(ddl))
+                conn.commit()
     with SessionLocal() as session:
         admin = session.query(User).filter(User.username == "admin").first()
         if not admin:

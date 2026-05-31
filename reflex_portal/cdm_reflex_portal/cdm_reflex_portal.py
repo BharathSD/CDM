@@ -1,11 +1,36 @@
 from __future__ import annotations
 
+import re
+from datetime import datetime
+
 import reflex as rx
 from sqlalchemy import or_
 
 from .database import Company, SessionLocal, User, hash_password, init_db, verify_password
 
 init_db()
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", re.IGNORECASE)
+_ISO_DATE_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
+
+
+def _parse_doi(value: str) -> bool:
+    """Return True if value is a valid calendar date in DD/MM/YYYY format."""
+    try:
+        datetime.strptime(value, "%d/%m/%Y")
+        return True
+    except ValueError:
+        return False
+
+
+def _format_date(value: str | None) -> str:
+    """Convert YYYY-MM-DD (from DB / old picker) to DD/MM/YYYY for display."""
+    if not value:
+        return ""
+    m = _ISO_DATE_RE.match(value)
+    if m:
+        return f"{m.group(3)}/{m.group(2)}/{m.group(1)}"
+    return value
 
 
 class PortalState(rx.State):
@@ -39,6 +64,9 @@ class PortalState(rx.State):
     form_class: str = ""
     form_category: str = ""
     form_sub_category: str = ""
+    form_doi: str = ""
+    form_email: str = ""
+    form_address: str = ""
     form_error: str = ""
 
     # ── Edit-company form ─────────────────────────────────────────────────────
@@ -49,6 +77,9 @@ class PortalState(rx.State):
     edit_form_class: str = ""
     edit_form_category: str = ""
     edit_form_sub_category: str = ""
+    edit_form_doi: str = ""
+    edit_form_email: str = ""
+    edit_form_address: str = ""
     edit_form_error: str = ""
 
     # ── User management (admin only) ──────────────────────────────────────────
@@ -77,6 +108,9 @@ class PortalState(rx.State):
         self.form_class = ""
         self.form_category = ""
         self.form_sub_category = ""
+        self.form_doi = ""
+        self.form_email = ""
+        self.form_address = ""
         self.form_error = ""
 
     def _clear_edit_company_form(self) -> None:
@@ -88,6 +122,9 @@ class PortalState(rx.State):
         self.edit_form_class = ""
         self.edit_form_category = ""
         self.edit_form_sub_category = ""
+        self.edit_form_doi = ""
+        self.edit_form_email = ""
+        self.edit_form_address = ""
         self.edit_form_error = ""
 
     def _clear_user_form(self) -> None:
@@ -350,6 +387,9 @@ class PortalState(rx.State):
                     "class": r.company_class or "-",
                     "category": r.company_type or "-",
                     "sub_category": r.sub_category or "-",
+                    "doi": _format_date(r.date_of_incorporation),
+                    "email": r.email or "",
+                    "address": r.address or "",
                 }
                 for r in rows
             ]
@@ -409,6 +449,9 @@ class PortalState(rx.State):
                 self.edit_form_class = c["class"] if c["class"] != "-" else ""
                 self.edit_form_category = c["category"] if c["category"] != "-" else ""
                 self.edit_form_sub_category = c["sub_category"] if c["sub_category"] != "-" else ""
+                self.edit_form_doi = c["doi"]
+                self.edit_form_email = c["email"]
+                self.edit_form_address = c["address"]
                 break
         self.show_edit_company_form = True
 
@@ -435,6 +478,32 @@ class PortalState(rx.State):
         if self.show_edit_company_form:
             self.edit_form_sub_category = value
 
+    def handle_form_doi_change(self, value: str):
+        if self.show_add_form:
+            m = _ISO_DATE_RE.match(value)
+            self.form_doi = f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m else value
+
+    def handle_form_email_change(self, value: str):
+        if self.show_add_form:
+            self.form_email = value
+
+    def handle_form_address_change(self, value: str):
+        if self.show_add_form:
+            self.form_address = value
+
+    def handle_edit_form_doi_change(self, value: str):
+        if self.show_edit_company_form:
+            m = _ISO_DATE_RE.match(value)
+            self.edit_form_doi = f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m else value
+
+    def handle_edit_form_email_change(self, value: str):
+        if self.show_edit_company_form:
+            self.edit_form_email = value
+
+    def handle_edit_form_address_change(self, value: str):
+        if self.show_edit_company_form:
+            self.edit_form_address = value
+
     def save_edit_company(self):
         if self.role not in ("ADMIN", "EDITOR"):
             self.edit_form_error = "You do not have permission to edit companies."
@@ -444,13 +513,22 @@ class PortalState(rx.State):
         company_class = self.edit_form_class.strip()
         company_category = self.edit_form_category.strip()
         company_sub_category = self.edit_form_sub_category.strip()
+        doi = self.edit_form_doi.strip()
+        email = self.edit_form_email.strip()
+        address = self.edit_form_address.strip()
         if not cin or not name or not company_class or not company_category or not company_sub_category:
             self.edit_form_error = "All fields are required."
+            return
+        if email and not _EMAIL_RE.match(email):
+            self.edit_form_error = "Enter a valid email address."
+            return
+        if doi and not _parse_doi(doi):
+            self.edit_form_error = "Invalid date. Use DD/MM/YYYY (e.g. 15/08/2024)."
             return
         cid = self.edit_company_id
         self._clear_edit_company_form()
         self.is_saving = True
-        return PortalState.commit_edit_company(cid, cin, name, company_class, company_category, company_sub_category)
+        return PortalState.commit_edit_company(cid, cin, name, company_class, company_category, company_sub_category, doi, email, address)
 
     def commit_edit_company(
         self,
@@ -460,6 +538,9 @@ class PortalState(rx.State):
         company_class: str,
         company_category: str,
         company_sub_category: str,
+        doi: str = "",
+        email: str = "",
+        address: str = "",
     ):
         try:
             cid = int(company_id)
@@ -480,6 +561,9 @@ class PortalState(rx.State):
                 company.company_class = company_class
                 company.company_type = company_category
                 company.sub_category = company_sub_category
+                company.date_of_incorporation = doi or None
+                company.email = email or None
+                company.address = address or None
                 session.commit()
         self.is_saving = False
         self.load_companies()
@@ -503,9 +587,18 @@ class PortalState(rx.State):
         company_class = self.form_class.strip()
         company_category = self.form_category.strip()
         company_sub_category = self.form_sub_category.strip()
+        doi = self.form_doi.strip()
+        email = self.form_email.strip()
+        address = self.form_address.strip()
 
         if not cin or not name or not company_class or not company_category or not company_sub_category:
             self.form_error = "All fields are required."
+            return
+        if email and not _EMAIL_RE.match(email):
+            self.form_error = "Enter a valid email address."
+            return
+        if doi and not _parse_doi(doi):
+            self.form_error = "Invalid date. Use DD/MM/YYYY (e.g. 15/08/2024)."
             return
 
         # Close the form immediately and clear all fields so that any disk
@@ -515,7 +608,7 @@ class PortalState(rx.State):
         # Chain to the DB work.  The frontend renders the loading overlay
         # while this second event is in flight.
         return PortalState.commit_save(
-            cin, name, company_class, company_category, company_sub_category
+            cin, name, company_class, company_category, company_sub_category, doi, email, address
         )
 
     def commit_save(
@@ -525,6 +618,9 @@ class PortalState(rx.State):
         company_class: str,
         company_category: str,
         company_sub_category: str,
+        doi: str = "",
+        email: str = "",
+        address: str = "",
     ):
         """Second hop: DB insert + table refresh."""
         with SessionLocal() as session:
@@ -539,6 +635,9 @@ class PortalState(rx.State):
                     company_class=company_class,
                     company_type=company_category,
                     sub_category=company_sub_category,
+                    date_of_incorporation=doi or None,
+                    email=email or None,
+                    address=address or None,
                 )
             )
             session.commit()
@@ -860,14 +959,14 @@ def login_page() -> rx.Component:
     )
 
 
-def _form_input(label: str, placeholder: str, value, on_change) -> rx.Component:
+def _form_input(label: str, placeholder: str, value, on_change, input_type: str = "text") -> rx.Component:
     return rx.vstack(
         rx.text(label, size="2", weight="bold", color="#333"),
         rx.el.input(
             placeholder=placeholder,
             value=value,
             on_change=on_change,
-            type="text",
+            type=input_type,
             style={
                 "width": "100%",
                 "padding": "0.625rem 0.875rem",
@@ -912,6 +1011,60 @@ def _form_select(label: str, options: list, value, on_change) -> rx.Component:
     )
 
 
+def _form_date_input(label: str, value, on_change) -> rx.Component:
+    return rx.vstack(
+        rx.text(label, size="2", weight="bold", color="#333"),
+        rx.el.input(
+            type="text",
+            placeholder="DD/MM/YYYY",
+            value=value,
+            on_change=on_change,
+            style={
+                "width": "100%",
+                "padding": "0.625rem 0.875rem",
+                "border_radius": "0.5rem",
+                "border": "2px solid #d0d0d0",
+                "background_color": "white",
+                "font_size": "0.95rem",
+                "color": "#1a1a1a",
+                "outline": "none",
+                "box_sizing": "border-box",
+            },
+        ),
+        rx.text("Format: DD/MM/YYYY (e.g. 15/08/2024)", size="1", color="#999"),
+        spacing="1",
+        width="100%",
+    )
+
+
+def _form_textarea(label: str, placeholder: str, value, on_change) -> rx.Component:
+    return rx.vstack(
+        rx.text(label, size="2", weight="bold", color="#333"),
+        rx.el.textarea(
+            placeholder=placeholder,
+            value=value,
+            on_change=on_change,
+            rows="3",
+            style={
+                "width": "100%",
+                "padding": "0.625rem 0.875rem",
+                "border_radius": "0.5rem",
+                "border": "2px solid #d0d0d0",
+                "background_color": "white",
+                "font_size": "0.95rem",
+                "color": "#1a1a1a",
+                "outline": "none",
+                "box_sizing": "border-box",
+                "resize": "vertical",
+                "font_family": "inherit",
+                "min_height": "80px",
+            },
+        ),
+        spacing="1",
+        width="100%",
+    )
+
+
 def add_company_dialog() -> rx.Component:
     return rx.cond(
         PortalState.show_add_form,
@@ -946,6 +1099,24 @@ def add_company_dialog() -> rx.Component:
                         ],
                         PortalState.form_sub_category,
                         PortalState.handle_form_sub_category_change,
+                    ),
+                    _form_date_input(
+                        "Date of Incorporation",
+                        PortalState.form_doi,
+                        PortalState.handle_form_doi_change,
+                    ),
+                    _form_input(
+                        "Email Address",
+                        "e.g. company@example.com",
+                        PortalState.form_email,
+                        PortalState.handle_form_email_change,
+                        "email",
+                    ),
+                    _form_textarea(
+                        "Address",
+                        "Building/Street, Area, City, State, Pincode",
+                        PortalState.form_address,
+                        PortalState.handle_form_address_change,
                     ),
                     rx.cond(
                         PortalState.form_error != "",
@@ -1043,6 +1214,24 @@ def edit_company_dialog() -> rx.Component:
                         PortalState.edit_form_sub_category,
                         PortalState.handle_edit_form_sub_category_change,
                     ),
+                    _form_date_input(
+                        "Date of Incorporation",
+                        PortalState.edit_form_doi,
+                        PortalState.handle_edit_form_doi_change,
+                    ),
+                    _form_input(
+                        "Email Address",
+                        "e.g. company@example.com",
+                        PortalState.edit_form_email,
+                        PortalState.handle_edit_form_email_change,
+                        "email",
+                    ),
+                    _form_textarea(
+                        "Address",
+                        "Building/Street, Area, City, State, Pincode",
+                        PortalState.edit_form_address,
+                        PortalState.handle_edit_form_address_change,
+                    ),
                     rx.cond(
                         PortalState.edit_form_error != "",
                         rx.box(
@@ -1111,6 +1300,8 @@ def companies_table() -> rx.Component:
                 rx.table.column_header_cell("Class", font_weight="700", color="white", font_size="0.95rem"),
                 rx.table.column_header_cell("Category", font_weight="700", color="white", font_size="0.95rem"),
                 rx.table.column_header_cell("Sub Category", font_weight="700", color="white", font_size="0.95rem"),
+                rx.table.column_header_cell("Date of Incorp.", font_weight="700", color="white", font_size="0.95rem"),
+                rx.table.column_header_cell("Email", font_weight="700", color="white", font_size="0.95rem"),
                 rx.table.column_header_cell("Actions", font_weight="700", color="white", font_size="0.95rem"),
             ),
             background="linear-gradient(90deg, #667eea 0%, #764ba2 100%)",
@@ -1125,6 +1316,14 @@ def companies_table() -> rx.Component:
                     rx.table.cell(rx.badge(item["class"], variant="outline", color_scheme="violet")),
                     rx.table.cell(rx.badge(item["category"], variant="outline", color_scheme="cyan")),
                     rx.table.cell(rx.text(item["sub_category"], color="#555", size="2")),
+                    rx.table.cell(rx.text(item["doi"], color="#555", size="2")),
+                    rx.table.cell(
+                        rx.cond(
+                            item["email"] != "",
+                            rx.link(item["email"], href=f"mailto:{item['email']}", size="2", color="#667eea"),
+                            rx.text("-", color="#aaa", size="2"),
+                        )
+                    ),
                     rx.table.cell(
                         rx.cond(
                             (PortalState.role == "ADMIN") | (PortalState.role == "EDITOR"),
