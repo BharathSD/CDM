@@ -9,17 +9,21 @@ init_db()
 
 
 class PortalState(rx.State):
+    # ── Auth ──────────────────────────────────────────────────────────────────
     is_authenticated: bool = False
     username: str = ""
     password: str = ""
     current_user: str = ""
     role: str = ""
     error_message: str = ""
+
+    # ── Companies ─────────────────────────────────────────────────────────────
     search_query: str = ""
     companies: list[dict] = []
 
-    # Add company form
+    # ── Add-company form ──────────────────────────────────────────────────────
     show_add_form: bool = False
+    is_saving: bool = False
     form_cin: str = ""
     form_name: str = ""
     form_class: str = ""
@@ -27,26 +31,51 @@ class PortalState(rx.State):
     form_sub_category: str = ""
     form_error: str = ""
 
+    # ── Internal helpers ──────────────────────────────────────────────────────
+
+    def _clear_form(self) -> None:
+        """Reset every form-related var to its default."""
+        self.show_add_form = False
+        self.is_saving = False
+        self.form_cin = ""
+        self.form_name = ""
+        self.form_class = ""
+        self.form_category = ""
+        self.form_sub_category = ""
+        self.form_error = ""
+
+    # ── Page lifecycle ────────────────────────────────────────────────────────
+
+    def on_page_load(self):
+        """Registered via on_load so it runs on every page load AND on every
+        WebSocket reconnect (Reflex re-fires on_load_internal after reconnect).
+        Guarantees transient form state is never restored from stale disk state."""
+        self._clear_form()
+        if self.is_authenticated:
+            self.load_companies()
+
+    # ── Auth ──────────────────────────────────────────────────────────────────
+
     def handle_username_change(self, value: str):
         self.username = value
 
     def handle_password_change(self, value: str):
         self.password = value
 
-    def handle_search_input(self, value: str):
-        self.search_query = value
-
     def handle_key_down(self, key: str):
         if key == "Enter":
-            return PortalState.handle_login()
+            return PortalState.handle_login
 
     def handle_login(self):
         with SessionLocal() as session:
-            user = session.query(User).filter(User.username == self.username.strip()).first()
+            user = (
+                session.query(User)
+                .filter(User.username == self.username.strip())
+                .first()
+            )
             if not user or not verify_password(self.password, user.password_hash):
                 self.error_message = "Invalid username or password"
                 return
-
             self.is_authenticated = True
             self.current_user = user.username
             self.role = user.role
@@ -55,6 +84,7 @@ class PortalState(rx.State):
             self.load_companies()
 
     def handle_logout(self):
+        self._clear_form()
         self.is_authenticated = False
         self.current_user = ""
         self.role = ""
@@ -64,53 +94,85 @@ class PortalState(rx.State):
         self.companies = []
         self.search_query = ""
 
+    # ── Companies ─────────────────────────────────────────────────────────────
+
+    def handle_search_input(self, value: str):
+        self.search_query = value
+
     def load_companies(self):
         with SessionLocal() as session:
             query = session.query(Company)
             if self.search_query.strip():
                 term = f"%{self.search_query.strip()}%"
-                query = query.filter(or_(Company.cin.ilike(term), Company.name.ilike(term)))
-
+                query = query.filter(
+                    or_(Company.cin.ilike(term), Company.name.ilike(term))
+                )
             rows = query.order_by(Company.id.desc()).all()
             self.companies = [
                 {
-                    "id": str(item.id),
-                    "cin": item.cin,
-                    "name": item.name,
-                    "class": item.company_class or "-",
-                    "category": item.company_type or "-",
-                    "sub_category": item.sub_category or "-",
+                    "id": str(r.id),
+                    "cin": r.cin,
+                    "name": r.name,
+                    "class": r.company_class or "-",
+                    "category": r.company_type or "-",
+                    "sub_category": r.sub_category or "-",
                 }
-                for item in rows
+                for r in rows
             ]
 
+    def confirm_delete(self, company_id: str):
+        if self.role not in ("ADMIN", "EDITOR"):
+            self.error_message = "You do not have permission to delete companies."
+            return
+        try:
+            cid = int(company_id)
+        except (ValueError, TypeError):
+            self.error_message = f"Invalid company ID '{company_id}'."
+            return
+        with SessionLocal() as session:
+            company = session.query(Company).filter(Company.id == cid).first()
+            if company:
+                session.delete(company)
+                session.commit()
+        self.load_companies()
+
+    # ── Add-company form handlers ─────────────────────────────────────────────
+
     def handle_form_cin_change(self, value: str):
-        self.form_cin = value
+        if self.show_add_form:
+            self.form_cin = value
 
     def handle_form_name_change(self, value: str):
-        self.form_name = value
+        if self.show_add_form:
+            self.form_name = value
 
     def handle_form_class_change(self, value: str):
-        self.form_class = value
+        if self.show_add_form:
+            self.form_class = value
 
     def handle_form_category_change(self, value: str):
-        self.form_category = value
+        if self.show_add_form:
+            self.form_category = value
 
     def handle_form_sub_category_change(self, value: str):
-        self.form_sub_category = value
+        if self.show_add_form:
+            self.form_sub_category = value
 
     def open_add_form(self):
-        self.form_cin = ""
-        self.form_name = ""
-        self.form_class = ""
-        self.form_category = ""
-        self.form_sub_category = ""
-        self.form_error = ""
+        self._clear_form()
         self.show_add_form = True
 
     def close_add_form(self):
-        self.show_add_form = False
-        self.form_error = ""
+        self._clear_form()
+
+    # ── Save – two-hop sequential (no generators / yield) ────────────────────
+    #
+    # save_company  → validates, closes form, sets is_saving=True,
+    #                 then chains to _commit_save.
+    # _commit_save  → performs the DB insert and refreshes the table.
+    #
+    # Splitting into two events lets the frontend render the loading overlay
+    # between hops without using any async generator.
 
     def save_company(self):
         if self.role not in ("ADMIN", "EDITOR"):
@@ -127,43 +189,41 @@ class PortalState(rx.State):
             self.form_error = "All fields are required."
             return
 
+        # Close the form immediately and clear all fields so that any disk
+        # write captured between the two hops has show_add_form=False.
+        self._clear_form()
+        self.is_saving = True
+        # Chain to the DB work.  The frontend renders the loading overlay
+        # while this second event is in flight.
+        return PortalState.commit_save(
+            cin, name, company_class, company_category, company_sub_category
+        )
+
+    def commit_save(
+        self,
+        cin: str,
+        name: str,
+        company_class: str,
+        company_category: str,
+        company_sub_category: str,
+    ):
+        """Second hop: DB insert + table refresh."""
         with SessionLocal() as session:
-            existing = session.query(Company).filter(Company.cin == cin).first()
-            if existing:
-                self.form_error = f"CIN '{cin}' already exists."
+            if session.query(Company).filter(Company.cin == cin).first():
+                self.error_message = f"A company with CIN '{cin}' already exists."
+                self.is_saving = False
                 return
-            session.add(Company(
-                cin=cin,
-                name=name,
-                company_class=company_class,
-                company_type=company_category,
-                sub_category=company_sub_category,
-            ))
+            session.add(
+                Company(
+                    cin=cin,
+                    name=name,
+                    company_class=company_class,
+                    company_type=company_category,
+                    sub_category=company_sub_category,
+                )
+            )
             session.commit()
-
-        self.show_add_form = False
-        self.form_cin = ""
-        self.form_name = ""
-        self.form_class = ""
-        self.form_category = ""
-        self.form_sub_category = ""
-        self.form_error = ""
-        self.load_companies()
-
-    def confirm_delete(self, company_id: str):
-        if self.role not in ("ADMIN", "EDITOR"):
-            self.error_message = "You do not have permission to delete companies."
-            return
-        try:
-            cid = int(company_id)
-        except (ValueError, TypeError):
-            self.error_message = f"Delete failed: invalid company ID '{company_id}'."
-            return
-        with SessionLocal() as session:
-            company = session.query(Company).filter(Company.id == cid).first()
-            if company:
-                session.delete(company)
-                session.commit()
+        self.is_saving = False
         self.load_companies()
 
 
@@ -410,6 +470,8 @@ def add_company_dialog() -> rx.Component:
                         rx.button(
                             rx.hstack(rx.icon("save", size=16), rx.text("Save Company"), spacing="2"),
                             on_click=PortalState.save_company,
+                            loading=PortalState.is_saving,
+                            disabled=PortalState.is_saving,
                             background="linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
                             color="white",
                             size="3",
@@ -699,7 +761,6 @@ def dashboard_page() -> rx.Component:
             spacing="0",
             width="100%",
             height="100vh",
-            on_mount=PortalState.load_companies,
         ),
         add_company_dialog(),
         background="#f5f7fa",
@@ -708,10 +769,38 @@ def dashboard_page() -> rx.Component:
     )
 
 
+def loading_overlay() -> rx.Component:
+    """Full-screen spinner shown while a save is in flight."""
+    return rx.box(
+        rx.vstack(
+            rx.spinner(size="3", color="white"),
+            rx.text("Saving…", size="3", color="white", weight="bold"),
+            spacing="3",
+            align_items="center",
+        ),
+        position="fixed",
+        top="0",
+        left="0",
+        width="100vw",
+        height="100vh",
+        background="rgba(0,0,0,0.55)",
+        z_index="9999",
+        display="flex",
+        align_items="center",
+        justify_content="center",
+    )
+
+
 def index() -> rx.Component:
-    return rx.cond(PortalState.is_authenticated, dashboard_page(), login_page())
+    return rx.box(
+        rx.cond(PortalState.is_authenticated, dashboard_page(), login_page()),
+        rx.cond(PortalState.is_saving, loading_overlay()),
+    )
 
 
 app = rx.App()
-app.add_page(index, title="CDM Portal")
+# on_load fires on every page load AND on every WebSocket reconnect.
+# on_page_load resets all form state, so stale disk-persisted state can
+# never cause the Add Company dialog to reappear after saving.
+app.add_page(index, title="CDM Portal", on_load=PortalState.on_page_load)
 
