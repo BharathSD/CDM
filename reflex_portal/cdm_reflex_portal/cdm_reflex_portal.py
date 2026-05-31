@@ -163,6 +163,11 @@ class PortalState(rx.State):
 
     def handle_search_input(self, value: str):
         self.search_query = value
+        self.load_companies()
+
+    def handle_search_key_down(self, key: str):
+        if key == "Enter":
+            self.load_companies()
 
     def load_companies(self):
         with SessionLocal() as session:
@@ -1349,20 +1354,25 @@ def companies_section() -> rx.Component:
                     width="100%",
                 ),
                 rx.hstack(
-                    rx.input(
+                    rx.el.input(
                         placeholder="Enter CIN or company name...",
                         value=PortalState.search_query,
                         on_change=PortalState.handle_search_input,
-                        width="100%",
-                        padding="0.875rem 1rem",
-                        border_radius="0.625rem",
-                        border="2px solid #e0e0e0",
-                        background="white",
-                        font_size="1rem",
-                        color="#1a1a1a",
-                        font_weight="500",
-                        _focus={"border_color": "#667eea", "box_shadow": "0 0 0 4px rgba(102,126,234,0.1)"},
-                        _placeholder={"color": "#999"},
+                        on_key_down=PortalState.handle_search_key_down,
+                        type="text",
+                        style={
+                            "width": "100%",
+                            "padding": "0.75rem 1rem",
+                            "border_radius": "0.625rem",
+                            "border": "2px solid #e0e0e0",
+                            "background_color": "white",
+                            "font_size": "1rem",
+                            "font_weight": "500",
+                            "color": "#1a1a1a",
+                            "outline": "none",
+                            "box_sizing": "border-box",
+                            "transition": "border-color 0.2s",
+                        },
                     ),
                     rx.button(
                         rx.hstack(rx.icon("search", size=16), rx.text("Search"), spacing="2"),
