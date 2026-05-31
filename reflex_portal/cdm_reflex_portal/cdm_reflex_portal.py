@@ -586,15 +586,15 @@ def login_page() -> rx.Component:
             ),
             spacing="6",
             padding="4rem 3rem",
-            width="50%",
+            width="40%",
             height="100vh",
             justify="center",
             background="linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
         ),
         rx.vstack(
             rx.vstack(
-                rx.heading("Sign In", size="6", color="#1a1a1a", weight="bold"),
-                rx.text("Enter credentials to access", size="3", color="#666"),
+                rx.heading("Welcome Back", size="9", color="#1a1a1a", weight="bold"),
+                rx.text("Enter credentials to access", size="7", color="#666"),
                 spacing="2",
                 margin_bottom="2rem",
             ),
@@ -602,14 +602,14 @@ def login_page() -> rx.Component:
                 rx.vstack(
                     rx.text("Username", size="2", weight="bold", color="#333"),
                     rx.el.input(
-                        placeholder="admin",
+                        placeholder="Username",
                         value=PortalState.username,
                         on_change=PortalState.handle_username_change,
                         on_key_down=PortalState.handle_key_down,
                         type="text",
                         style={
                             "width": "100%",
-                            "padding": "0.875rem 1rem",
+                            "padding": "1rem 1rem",
                             "border_radius": "0.625rem",
                             "border": "2px solid #999",
                             "background_color": "white",
@@ -621,6 +621,7 @@ def login_page() -> rx.Component:
                         },
                     ),
                     spacing="1",
+                    width="40%",
                 ),
                 rx.vstack(
                     rx.text("Password", size="2", weight="bold", color="#333"),
@@ -632,7 +633,7 @@ def login_page() -> rx.Component:
                         type="password",
                         style={
                             "width": "100%",
-                            "padding": "0.875rem 1rem",
+                            "padding": "1rem 1rem",
                             "border_radius": "0.625rem",
                             "border": "2px solid #999",
                             "background_color": "white",
@@ -644,6 +645,7 @@ def login_page() -> rx.Component:
                         },
                     ),
                     spacing="1",
+                    width="40%",
                 ),
                 spacing="4",
                 width="100%",
@@ -665,9 +667,9 @@ def login_page() -> rx.Component:
             rx.button(
                 rx.text("Sign In", size="4", weight="bold"),
                 on_click=PortalState.handle_login,
-                width="50%",
-                align_self="left",
-                padding="1rem",
+                width="40%",
+                padding="1.25rem 1rem",
+                height="3.5rem",
                 background="linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
                 color="white",
                 border_radius="0.625rem",
