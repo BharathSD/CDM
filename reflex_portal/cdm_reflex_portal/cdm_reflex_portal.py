@@ -31,6 +31,16 @@ class PortalState(rx.State):
     form_sub_category: str = ""
     form_error: str = ""
 
+    # ── Edit-company form ─────────────────────────────────────────────────────
+    show_edit_company_form: bool = False
+    edit_company_id: str = ""
+    edit_form_cin: str = ""
+    edit_form_name: str = ""
+    edit_form_class: str = ""
+    edit_form_category: str = ""
+    edit_form_sub_category: str = ""
+    edit_form_error: str = ""
+
     # ── User management (admin only) ──────────────────────────────────────────
     active_tab: str = "companies"
     users: list[dict] = []
@@ -59,6 +69,17 @@ class PortalState(rx.State):
         self.form_sub_category = ""
         self.form_error = ""
 
+    def _clear_edit_company_form(self) -> None:
+        """Reset every edit-company-form var to its default."""
+        self.show_edit_company_form = False
+        self.edit_company_id = ""
+        self.edit_form_cin = ""
+        self.edit_form_name = ""
+        self.edit_form_class = ""
+        self.edit_form_category = ""
+        self.edit_form_sub_category = ""
+        self.edit_form_error = ""
+
     def _clear_user_form(self) -> None:
         """Reset every user-form var to its default."""
         self.show_add_user_form = False
@@ -82,6 +103,7 @@ class PortalState(rx.State):
         WebSocket reconnect (Reflex re-fires on_load_internal after reconnect).
         Guarantees transient form state is never restored from stale disk state."""
         self._clear_form()
+        self._clear_edit_company_form()
         self._clear_user_form()
         self._clear_edit_user_form()
         if self.is_authenticated:
@@ -131,6 +153,7 @@ class PortalState(rx.State):
         self.companies = []
         self.users = []
         self.search_query = ""
+        self._clear_edit_company_form()
         self._clear_edit_user_form()
 
     def clear_error(self):
@@ -206,6 +229,91 @@ class PortalState(rx.State):
 
     def close_add_form(self):
         self._clear_form()
+
+    def open_edit_company_form(self, company_id: str):
+        self._clear_edit_company_form()
+        self.edit_company_id = company_id
+        for c in self.companies:
+            if c["id"] == company_id:
+                self.edit_form_cin = c["cin"]
+                self.edit_form_name = c["name"]
+                self.edit_form_class = c["class"] if c["class"] != "-" else ""
+                self.edit_form_category = c["category"] if c["category"] != "-" else ""
+                self.edit_form_sub_category = c["sub_category"] if c["sub_category"] != "-" else ""
+                break
+        self.show_edit_company_form = True
+
+    def close_edit_company_form(self):
+        self._clear_edit_company_form()
+
+    def handle_edit_form_cin_change(self, value: str):
+        if self.show_edit_company_form:
+            self.edit_form_cin = value
+
+    def handle_edit_form_name_change(self, value: str):
+        if self.show_edit_company_form:
+            self.edit_form_name = value
+
+    def handle_edit_form_class_change(self, value: str):
+        if self.show_edit_company_form:
+            self.edit_form_class = value
+
+    def handle_edit_form_category_change(self, value: str):
+        if self.show_edit_company_form:
+            self.edit_form_category = value
+
+    def handle_edit_form_sub_category_change(self, value: str):
+        if self.show_edit_company_form:
+            self.edit_form_sub_category = value
+
+    def save_edit_company(self):
+        if self.role not in ("ADMIN", "EDITOR"):
+            self.edit_form_error = "You do not have permission to edit companies."
+            return
+        cin = self.edit_form_cin.strip()
+        name = self.edit_form_name.strip()
+        company_class = self.edit_form_class.strip()
+        company_category = self.edit_form_category.strip()
+        company_sub_category = self.edit_form_sub_category.strip()
+        if not cin or not name or not company_class or not company_category or not company_sub_category:
+            self.edit_form_error = "All fields are required."
+            return
+        cid = self.edit_company_id
+        self._clear_edit_company_form()
+        self.is_saving = True
+        return PortalState.commit_edit_company(cid, cin, name, company_class, company_category, company_sub_category)
+
+    def commit_edit_company(
+        self,
+        company_id: str,
+        cin: str,
+        name: str,
+        company_class: str,
+        company_category: str,
+        company_sub_category: str,
+    ):
+        try:
+            cid = int(company_id)
+        except (ValueError, TypeError):
+            self.error_message = f"Invalid company ID '{company_id}'."
+            self.is_saving = False
+            return
+        with SessionLocal() as session:
+            existing = session.query(Company).filter(Company.cin == cin, Company.id != cid).first()
+            if existing:
+                self.error_message = f"Another company with CIN '{cin}' already exists."
+                self.is_saving = False
+                return
+            company = session.query(Company).filter(Company.id == cid).first()
+            if company:
+                company.cin = cin
+                company.name = name
+                company.company_class = company_class
+                company.company_type = company_category
+                company.sub_category = company_sub_category
+                session.commit()
+        self.is_saving = False
+        self.load_companies()
 
     # ── Save – two-hop sequential (no generators / yield) ────────────────────
     #
@@ -729,6 +837,100 @@ def add_company_dialog() -> rx.Component:
     )
 
 
+def edit_company_dialog() -> rx.Component:
+    return rx.cond(
+        PortalState.show_edit_company_form,
+        rx.box(
+            rx.box(
+                rx.vstack(
+                    rx.hstack(
+                        rx.icon("pencil", size=22, color="#667eea"),
+                        rx.heading("Edit Company", size="5", color="#1a1a1a", weight="bold"),
+                        rx.spacer(),
+                        rx.button(
+                            rx.icon("x", size=18),
+                            on_click=PortalState.close_edit_company_form,
+                            variant="ghost",
+                            size="1",
+                        ),
+                        width="100%",
+                        align_items="center",
+                    ),
+                    rx.divider(),
+                    _form_input("CIN", "e.g. U74999MH2021PTC123456", PortalState.edit_form_cin, PortalState.handle_edit_form_cin_change),
+                    _form_input("Company Name", "Enter company name", PortalState.edit_form_name, PortalState.handle_edit_form_name_change),
+                    _form_select("Class", ["PUBLIC", "PRIVATE"], PortalState.edit_form_class, PortalState.handle_edit_form_class_change),
+                    _form_select("Category", ["Company limited by Shares"], PortalState.edit_form_category, PortalState.handle_edit_form_category_change),
+                    _form_select(
+                        "Sub Category",
+                        [
+                            "Non-government company",
+                            "State government company",
+                            "Union government company",
+                            "Subsidiary of company incorporated outside India",
+                        ],
+                        PortalState.edit_form_sub_category,
+                        PortalState.handle_edit_form_sub_category_change,
+                    ),
+                    rx.cond(
+                        PortalState.edit_form_error != "",
+                        rx.box(
+                            rx.hstack(
+                                rx.icon("circle-alert", size=16, color="#dc2626"),
+                                rx.text(PortalState.edit_form_error, size="2", color="#dc2626"),
+                                spacing="2",
+                            ),
+                            padding="0.75rem",
+                            border_radius="0.5rem",
+                            background="#fee2e2",
+                            border_left="4px solid #dc2626",
+                            width="100%",
+                        ),
+                    ),
+                    rx.hstack(
+                        rx.button(
+                            "Cancel",
+                            on_click=PortalState.close_edit_company_form,
+                            variant="outline",
+                            color_scheme="gray",
+                            size="3",
+                        ),
+                        rx.button(
+                            rx.hstack(rx.icon("save", size=16), rx.text("Save Changes"), spacing="2"),
+                            on_click=PortalState.save_edit_company,
+                            background="linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                            color="white",
+                            size="3",
+                        ),
+                        spacing="3",
+                        justify="end",
+                        width="100%",
+                        padding_top="0.5rem",
+                    ),
+                    spacing="4",
+                    width="100%",
+                ),
+                background="white",
+                border_radius="0.75rem",
+                padding="2rem",
+                max_width="500px",
+                width="90%",
+                box_shadow="0 20px 60px rgba(0,0,0,0.3)",
+            ),
+            position="fixed",
+            top="0",
+            left="0",
+            width="100vw",
+            height="100vh",
+            background="rgba(0,0,0,0.5)",
+            z_index="1000",
+            display="flex",
+            align_items="center",
+            justify_content="center",
+        ),
+    )
+
+
 def companies_table() -> rx.Component:
     return rx.table.root(
         rx.table.header(
@@ -755,65 +957,75 @@ def companies_table() -> rx.Component:
                     rx.table.cell(
                         rx.cond(
                             (PortalState.role == "ADMIN") | (PortalState.role == "EDITOR"),
-                            rx.dialog.root(
-                                rx.dialog.trigger(
-                                    rx.button(
-                                        rx.icon("trash-2", size=14),
-                                        color_scheme="red",
-                                        variant="ghost",
-                                        size="1",
-                                    ),
+                            rx.hstack(
+                                rx.button(
+                                    rx.icon("pencil", size=14),
+                                    on_click=PortalState.open_edit_company_form(item["id"]),
+                                    color_scheme="blue",
+                                    variant="ghost",
+                                    size="1",
                                 ),
-                                rx.dialog.content(
-                                    rx.vstack(
-                                        rx.hstack(
-                                            rx.icon("triangle-alert", size=22, color="#dc2626"),
-                                            rx.dialog.title(
-                                                "Delete Company",
-                                                size="5",
-                                                weight="bold",
-                                                color="#1a1a1a",
-                                            ),
-                                            spacing="2",
-                                            align_items="center",
+                                rx.dialog.root(
+                                    rx.dialog.trigger(
+                                        rx.button(
+                                            rx.icon("trash-2", size=14),
+                                            color_scheme="red",
+                                            variant="ghost",
+                                            size="1",
                                         ),
-                                        rx.divider(),
-                                        rx.dialog.description(
-                                            rx.text(
-                                                "Are you sure you want to permanently delete ",
-                                                rx.text.strong(item["name"]),
-                                                "? This action cannot be undone.",
-                                                size="3",
-                                                color="#333",
+                                    ),
+                                    rx.dialog.content(
+                                        rx.vstack(
+                                            rx.hstack(
+                                                rx.icon("triangle-alert", size=22, color="#dc2626"),
+                                                rx.dialog.title(
+                                                    "Delete Company",
+                                                    size="5",
+                                                    weight="bold",
+                                                    color="#1a1a1a",
+                                                ),
+                                                spacing="2",
+                                                align_items="center",
                                             ),
-                                        ),
-                                        rx.hstack(
-                                            rx.dialog.close(
-                                                rx.button(
-                                                    "Cancel",
-                                                    variant="outline",
-                                                    color_scheme="gray",
+                                            rx.divider(),
+                                            rx.dialog.description(
+                                                rx.text(
+                                                    "Are you sure you want to permanently delete ",
+                                                    rx.text.strong(item["name"]),
+                                                    "? This action cannot be undone.",
                                                     size="3",
+                                                    color="#333",
                                                 ),
                                             ),
-                                            rx.dialog.close(
-                                                rx.button(
-                                                    rx.hstack(rx.icon("trash-2", size=16), rx.text("Delete"), spacing="2"),
-                                                    on_click=PortalState.confirm_delete(item["id"]),
-                                                    color_scheme="red",
-                                                    size="3",
+                                            rx.hstack(
+                                                rx.dialog.close(
+                                                    rx.button(
+                                                        "Cancel",
+                                                        variant="outline",
+                                                        color_scheme="gray",
+                                                        size="3",
+                                                    ),
                                                 ),
+                                                rx.dialog.close(
+                                                    rx.button(
+                                                        rx.hstack(rx.icon("trash-2", size=16), rx.text("Delete"), spacing="2"),
+                                                        on_click=PortalState.confirm_delete(item["id"]),
+                                                        color_scheme="red",
+                                                        size="3",
+                                                    ),
+                                                ),
+                                                spacing="3",
+                                                justify="end",
+                                                width="100%",
+                                                padding_top="0.5rem",
                                             ),
-                                            spacing="3",
-                                            justify="end",
+                                            spacing="4",
                                             width="100%",
-                                            padding_top="0.5rem",
                                         ),
-                                        spacing="4",
-                                        width="100%",
+                                        max_width="420px",
                                     ),
-                                    max_width="420px",
                                 ),
+                                spacing="1",
                             ),
                         )
                     ),
@@ -1318,6 +1530,7 @@ def dashboard_page() -> rx.Component:
             min_height="100vh",
         ),
         add_company_dialog(),
+        edit_company_dialog(),
         add_user_dialog(),
         edit_user_dialog(),
         background="#f5f7fa",
