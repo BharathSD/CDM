@@ -19,6 +19,9 @@ class PortalState(rx.State):
 
     # ── Companies ─────────────────────────────────────────────────────────────
     search_query: str = ""
+    filter_classes: list[str] = []
+    filter_categories: list[str] = []
+    filter_sub_categories: list[str] = []
     companies: list[dict] = []
 
     # ── Add-company form ──────────────────────────────────────────────────────
@@ -153,6 +156,9 @@ class PortalState(rx.State):
         self.companies = []
         self.users = []
         self.search_query = ""
+        self.filter_classes = []
+        self.filter_categories = []
+        self.filter_sub_categories = []
         self._clear_edit_company_form()
         self._clear_edit_user_form()
 
@@ -169,6 +175,36 @@ class PortalState(rx.State):
         if key == "Enter":
             self.load_companies()
 
+    def toggle_filter_class(self, value: str, checked: bool):
+        if checked:
+            if value not in self.filter_classes:
+                self.filter_classes = self.filter_classes + [value]
+        else:
+            self.filter_classes = [v for v in self.filter_classes if v != value]
+        self.load_companies()
+
+    def toggle_filter_category(self, value: str, checked: bool):
+        if checked:
+            if value not in self.filter_categories:
+                self.filter_categories = self.filter_categories + [value]
+        else:
+            self.filter_categories = [v for v in self.filter_categories if v != value]
+        self.load_companies()
+
+    def toggle_filter_sub_category(self, value: str, checked: bool):
+        if checked:
+            if value not in self.filter_sub_categories:
+                self.filter_sub_categories = self.filter_sub_categories + [value]
+        else:
+            self.filter_sub_categories = [v for v in self.filter_sub_categories if v != value]
+        self.load_companies()
+
+    def clear_filters(self):
+        self.filter_classes = []
+        self.filter_categories = []
+        self.filter_sub_categories = []
+        self.load_companies()
+
     def load_companies(self):
         with SessionLocal() as session:
             query = session.query(Company)
@@ -177,6 +213,12 @@ class PortalState(rx.State):
                 query = query.filter(
                     or_(Company.cin.ilike(term), Company.name.ilike(term))
                 )
+            if self.filter_classes:
+                query = query.filter(Company.company_class.in_(self.filter_classes))
+            if self.filter_categories:
+                query = query.filter(Company.company_type.in_(self.filter_categories))
+            if self.filter_sub_categories:
+                query = query.filter(Company.sub_category.in_(self.filter_sub_categories))
             rows = query.order_by(Company.id.desc()).all()
             self.companies = [
                 {
@@ -1348,7 +1390,7 @@ def companies_section() -> rx.Component:
                     rx.icon("search", size=20, color="#667eea"),
                     rx.vstack(
                         rx.text("Quick Search", size="2", weight="bold", color="#333"),
-                        rx.text("Find companies by CIN or name", size="1", color="#999"),
+                        rx.text("Filter by CIN, name, class, category or sub category", size="1", color="#999"),
                         spacing="1",
                     ),
                     width="100%",
@@ -1385,6 +1427,89 @@ def companies_section() -> rx.Component:
                     width="100%",
                     spacing="3",
                     align_items="center",
+                ),
+                rx.hstack(
+                    rx.vstack(
+                        rx.text("Class", size="1", weight="bold", color="#666", text_transform="uppercase", letter_spacing="0.05em"),
+                        rx.hstack(
+                            rx.checkbox(
+                                "PUBLIC",
+                                checked=PortalState.filter_classes.contains("PUBLIC"),
+                                on_change=PortalState.toggle_filter_class("PUBLIC"),
+                                size="1",
+                            ),
+                            rx.checkbox(
+                                "PRIVATE",
+                                checked=PortalState.filter_classes.contains("PRIVATE"),
+                                on_change=PortalState.toggle_filter_class("PRIVATE"),
+                                size="1",
+                            ),
+                            spacing="3",
+                            align_items="center",
+                        ),
+                        spacing="2",
+                        align_items="start",
+                    ),
+                    rx.vstack(
+                        rx.text("Category", size="1", weight="bold", color="#666", text_transform="uppercase", letter_spacing="0.05em"),
+                        rx.checkbox(
+                            "Limited by Shares",
+                            checked=PortalState.filter_categories.contains("Company limited by Shares"),
+                            on_change=PortalState.toggle_filter_category("Company limited by Shares"),
+                            size="1",
+                        ),
+                        spacing="2",
+                        align_items="start",
+                    ),
+                    rx.vstack(
+                        rx.text("Sub Category", size="1", weight="bold", color="#666", text_transform="uppercase", letter_spacing="0.05em"),
+                        rx.hstack(
+                            rx.checkbox(
+                                "Non-govt.",
+                                checked=PortalState.filter_sub_categories.contains("Non-government company"),
+                                on_change=PortalState.toggle_filter_sub_category("Non-government company"),
+                                size="1",
+                            ),
+                            rx.checkbox(
+                                "State govt.",
+                                checked=PortalState.filter_sub_categories.contains("State government company"),
+                                on_change=PortalState.toggle_filter_sub_category("State government company"),
+                                size="1",
+                            ),
+                            rx.checkbox(
+                                "Union govt.",
+                                checked=PortalState.filter_sub_categories.contains("Union government company"),
+                                on_change=PortalState.toggle_filter_sub_category("Union government company"),
+                                size="1",
+                            ),
+                            rx.checkbox(
+                                "Subsidiary",
+                                checked=PortalState.filter_sub_categories.contains("Subsidiary of company incorporated outside India"),
+                                on_change=PortalState.toggle_filter_sub_category("Subsidiary of company incorporated outside India"),
+                                size="1",
+                            ),
+                            spacing="3",
+                            align_items="center",
+                            flex_wrap="wrap",
+                        ),
+                        spacing="2",
+                        align_items="start",
+                    ),
+                    rx.cond(
+                        (PortalState.filter_classes.length() > 0) | (PortalState.filter_categories.length() > 0) | (PortalState.filter_sub_categories.length() > 0),
+                        rx.button(
+                            rx.hstack(rx.icon("x", size=14), rx.text("Clear"), spacing="1"),
+                            on_click=PortalState.clear_filters,
+                            variant="outline",
+                            color_scheme="gray",
+                            size="2",
+                        ),
+                    ),
+                    spacing="6",
+                    width="100%",
+                    align_items="start",
+                    flex_wrap="wrap",
+                    padding="0.25rem 0",
                 ),
                 spacing="4",
                 width="100%",
