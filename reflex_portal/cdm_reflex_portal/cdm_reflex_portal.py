@@ -3,7 +3,7 @@ from __future__ import annotations
 import reflex as rx
 from sqlalchemy import or_
 
-from .database import Company, SessionLocal, User, init_db, verify_password
+from .database import Company, SessionLocal, User, hash_password, init_db, verify_password
 
 init_db()
 
@@ -31,10 +31,25 @@ class PortalState(rx.State):
     form_sub_category: str = ""
     form_error: str = ""
 
+    # ── User management (admin only) ──────────────────────────────────────────
+    active_tab: str = "companies"
+    users: list[dict] = []
+    show_add_user_form: bool = False
+    user_form_username: str = ""
+    user_form_password: str = ""
+    user_form_role: str = ""
+    user_form_error: str = ""
+    # Edit user form
+    show_edit_user_form: bool = False
+    edit_user_id: str = ""
+    edit_user_form_username: str = ""
+    edit_user_form_password: str = ""
+    edit_user_form_error: str = ""
+
     # ── Internal helpers ──────────────────────────────────────────────────────
 
     def _clear_form(self) -> None:
-        """Reset every form-related var to its default."""
+        """Reset every company-form var to its default."""
         self.show_add_form = False
         self.is_saving = False
         self.form_cin = ""
@@ -44,6 +59,22 @@ class PortalState(rx.State):
         self.form_sub_category = ""
         self.form_error = ""
 
+    def _clear_user_form(self) -> None:
+        """Reset every user-form var to its default."""
+        self.show_add_user_form = False
+        self.user_form_username = ""
+        self.user_form_password = ""
+        self.user_form_role = ""
+        self.user_form_error = ""
+
+    def _clear_edit_user_form(self) -> None:
+        """Reset every edit-user-form var to its default."""
+        self.show_edit_user_form = False
+        self.edit_user_id = ""
+        self.edit_user_form_username = ""
+        self.edit_user_form_password = ""
+        self.edit_user_form_error = ""
+
     # ── Page lifecycle ────────────────────────────────────────────────────────
 
     def on_page_load(self):
@@ -51,8 +82,12 @@ class PortalState(rx.State):
         WebSocket reconnect (Reflex re-fires on_load_internal after reconnect).
         Guarantees transient form state is never restored from stale disk state."""
         self._clear_form()
+        self._clear_user_form()
+        self._clear_edit_user_form()
         if self.is_authenticated:
             self.load_companies()
+            if self.active_tab == "admin" and self.role == "ADMIN":
+                self.load_users()
 
     # ── Auth ──────────────────────────────────────────────────────────────────
 
@@ -85,6 +120,8 @@ class PortalState(rx.State):
 
     def handle_logout(self):
         self._clear_form()
+        self._clear_user_form()
+        self.active_tab = "companies"
         self.is_authenticated = False
         self.current_user = ""
         self.role = ""
@@ -92,7 +129,12 @@ class PortalState(rx.State):
         self.password = ""
         self.error_message = ""
         self.companies = []
+        self.users = []
         self.search_query = ""
+        self._clear_edit_user_form()
+
+    def clear_error(self):
+        self.error_message = ""
 
     # ── Companies ─────────────────────────────────────────────────────────────
 
@@ -225,6 +267,176 @@ class PortalState(rx.State):
             session.commit()
         self.is_saving = False
         self.load_companies()
+
+    # ── User management ───────────────────────────────────────────────────────
+
+    def switch_tab(self, tab: str):
+        self.active_tab = tab
+        self.error_message = ""
+        if tab == "admin" and self.role == "ADMIN":
+            self.load_users()
+
+    def load_users(self):
+        with SessionLocal() as session:
+            rows = session.query(User).order_by(User.id).all()
+            self.users = [
+                {"id": str(u.id), "username": u.username, "role": u.role}
+                for u in rows
+            ]
+
+    def open_add_user_form(self):
+        self._clear_user_form()
+        self.show_add_user_form = True
+
+    def close_add_user_form(self):
+        self._clear_user_form()
+
+    def handle_user_form_username_change(self, value: str):
+        if self.show_add_user_form:
+            self.user_form_username = value
+
+    def handle_user_form_password_change(self, value: str):
+        if self.show_add_user_form:
+            self.user_form_password = value
+
+    def handle_user_form_role_change(self, value: str):
+        if self.show_add_user_form:
+            self.user_form_role = value
+
+    def save_user(self):
+        if self.role != "ADMIN":
+            self.user_form_error = "Only admins can add users."
+            return
+        uname = self.user_form_username.strip()
+        pwd = self.user_form_password.strip()
+        user_role = self.user_form_role.strip()
+        if not uname or not pwd or not user_role:
+            self.user_form_error = "All fields are required."
+            return
+        if len(pwd) < 6:
+            self.user_form_error = "Password must be at least 6 characters."
+            return
+        self._clear_user_form()
+        self.is_saving = True
+        return PortalState.commit_add_user(uname, pwd, user_role)
+
+    def commit_add_user(self, username: str, password: str, user_role: str):
+        with SessionLocal() as session:
+            if session.query(User).filter(User.username == username).first():
+                self.error_message = f"Username '{username}' already exists."
+                self.is_saving = False
+                return
+            session.add(
+                User(
+                    username=username,
+                    password_hash=hash_password(password),
+                    role=user_role,
+                )
+            )
+            session.commit()
+        self.is_saving = False
+        self.load_users()
+
+    def delete_user(self, user_id: str):
+        if self.role != "ADMIN":
+            self.error_message = "Only admins can delete users."
+            return
+        try:
+            uid = int(user_id)
+        except (ValueError, TypeError):
+            self.error_message = f"Invalid user ID '{user_id}'."
+            return
+        with SessionLocal() as session:
+            user = session.query(User).filter(User.id == uid).first()
+            if user:
+                if user.username == self.current_user:
+                    self.error_message = "You cannot delete your own account."
+                    return
+                session.delete(user)
+                session.commit()
+        self.load_users()
+
+    def change_user_role(self, user_id: str, new_role: str):
+        if self.role != "ADMIN":
+            self.error_message = "Only admins can change roles."
+            return
+        try:
+            uid = int(user_id)
+        except (ValueError, TypeError):
+            self.error_message = f"Invalid user ID '{user_id}'."
+            return
+        with SessionLocal() as session:
+            user = session.query(User).filter(User.id == uid).first()
+            if user:
+                user.role = new_role
+                session.commit()
+                if user.username == self.current_user:
+                    self.role = new_role
+        self.load_users()
+
+    # ── Edit-user form handlers ───────────────────────────────────────────────
+
+    def open_edit_user_form(self, user_id: str):
+        self._clear_edit_user_form()
+        self.edit_user_id = user_id
+        for u in self.users:
+            if u["id"] == user_id:
+                self.edit_user_form_username = u["username"]
+                break
+        self.show_edit_user_form = True
+
+    def close_edit_user_form(self):
+        self._clear_edit_user_form()
+
+    def handle_edit_user_form_username_change(self, value: str):
+        if self.show_edit_user_form:
+            self.edit_user_form_username = value
+
+    def handle_edit_user_form_password_change(self, value: str):
+        if self.show_edit_user_form:
+            self.edit_user_form_password = value
+
+    def save_edit_user(self):
+        if self.role != "ADMIN":
+            self.edit_user_form_error = "Only admins can edit users."
+            return
+        uname = self.edit_user_form_username.strip()
+        pwd = self.edit_user_form_password.strip()
+        if not uname:
+            self.edit_user_form_error = "Username is required."
+            return
+        if pwd and len(pwd) < 6:
+            self.edit_user_form_error = "Password must be at least 6 characters."
+            return
+        uid = self.edit_user_id
+        self._clear_edit_user_form()
+        self.is_saving = True
+        return PortalState.commit_edit_user(uid, uname, pwd)
+
+    def commit_edit_user(self, user_id: str, username: str, password: str):
+        try:
+            uid = int(user_id)
+        except (ValueError, TypeError):
+            self.error_message = f"Invalid user ID '{user_id}'."
+            self.is_saving = False
+            return
+        with SessionLocal() as session:
+            existing = session.query(User).filter(User.username == username, User.id != uid).first()
+            if existing:
+                self.error_message = f"Username '{username}' is already taken."
+                self.is_saving = False
+                return
+            user = session.query(User).filter(User.id == uid).first()
+            if user:
+                old_username = user.username
+                user.username = username
+                if password:
+                    user.password_hash = hash_password(password)
+                session.commit()
+                if old_username == self.current_user:
+                    self.current_user = username
+        self.is_saving = False
+        self.load_users()
 
 
 def login_page() -> rx.Component:
@@ -616,10 +828,392 @@ def companies_table() -> rx.Component:
     )
 
 
+def users_table() -> rx.Component:
+    return rx.table.root(
+        rx.table.header(
+            rx.table.row(
+                rx.table.column_header_cell("Username", font_weight="700", color="white", font_size="0.95rem"),
+                rx.table.column_header_cell("Role", font_weight="700", color="white", font_size="0.95rem"),
+                rx.table.column_header_cell("Actions", font_weight="700", color="white", font_size="0.95rem"),
+            ),
+            background="linear-gradient(90deg, #667eea 0%, #764ba2 100%)",
+        ),
+        rx.table.body(
+            rx.foreach(
+                PortalState.users,
+                lambda user: rx.table.row(
+                    rx.table.cell(
+                        rx.hstack(
+                            rx.icon("user", size=16, color="#667eea"),
+                            rx.text(user["username"], font_weight="600", color="#1a1a1a", size="3"),
+                            spacing="2",
+                            align_items="center",
+                        )
+                    ),
+                    rx.table.cell(
+                        rx.el.select(
+                            rx.el.option("VIEWER", value="VIEWER"),
+                            rx.el.option("EDITOR", value="EDITOR"),
+                            rx.el.option("ADMIN", value="ADMIN"),
+                            value=user["role"],
+                            on_change=PortalState.change_user_role(user["id"]),
+                            style={
+                                "padding": "0.375rem 0.625rem",
+                                "border_radius": "0.375rem",
+                                "border": "1.5px solid #d0d0d0",
+                                "background_color": "white",
+                                "font_size": "0.875rem",
+                                "color": "#111111",
+                                "cursor": "pointer",
+                            },
+                        )
+                    ),
+                    rx.table.cell(
+                        rx.hstack(
+                            rx.button(
+                                rx.icon("pencil", size=14),
+                                on_click=PortalState.open_edit_user_form(user["id"]),
+                                color_scheme="blue",
+                                variant="ghost",
+                                size="1",
+                            ),
+                            rx.cond(
+                                user["username"] != PortalState.current_user,
+                                rx.dialog.root(
+                                    rx.dialog.trigger(
+                                        rx.button(rx.icon("trash-2", size=14), color_scheme="red", variant="ghost", size="1"),
+                                    ),
+                                    rx.dialog.content(
+                                        rx.vstack(
+                                            rx.hstack(
+                                                rx.icon("triangle-alert", size=22, color="#dc2626"),
+                                                rx.dialog.title("Delete User", size="5", weight="bold", color="#1a1a1a"),
+                                                spacing="2",
+                                                align_items="center",
+                                            ),
+                                            rx.divider(),
+                                            rx.dialog.description(
+                                                rx.text(
+                                                    "Permanently delete user ",
+                                                    rx.text.strong(user["username"]),
+                                                    "? This cannot be undone.",
+                                                    size="3",
+                                                    color="#333",
+                                                ),
+                                            ),
+                                            rx.hstack(
+                                                rx.dialog.close(rx.button("Cancel", variant="outline", color_scheme="gray", size="3")),
+                                                rx.dialog.close(
+                                                    rx.button(
+                                                        rx.hstack(rx.icon("trash-2", size=16), rx.text("Delete"), spacing="2"),
+                                                        on_click=PortalState.delete_user(user["id"]),
+                                                        color_scheme="red",
+                                                        size="3",
+                                                    ),
+                                                ),
+                                                spacing="3",
+                                                justify="end",
+                                                width="100%",
+                                                padding_top="0.5rem",
+                                            ),
+                                            spacing="4",
+                                            width="100%",
+                                        ),
+                                        max_width="420px",
+                                    ),
+                                ),
+                            ),
+                            spacing="2",
+                        )
+                    ),
+                    _hover={"background": "rgba(102,126,234,0.04)"},
+                    border_bottom="1px solid #f0f0f0",
+                    padding="1rem",
+                ),
+            )
+        ),
+        width="100%",
+        size="3",
+    )
+
+
+def edit_user_dialog() -> rx.Component:
+    return rx.cond(
+        PortalState.show_edit_user_form,
+        rx.box(
+            rx.box(
+                rx.vstack(
+                    rx.hstack(
+                        rx.icon("user-pen", size=22, color="#667eea"),
+                        rx.heading("Edit User", size="5", color="#1a1a1a", weight="bold"),
+                        rx.spacer(),
+                        rx.button(rx.icon("x", size=18), on_click=PortalState.close_edit_user_form, variant="ghost", size="1"),
+                        width="100%",
+                        align_items="center",
+                    ),
+                    rx.divider(),
+                    _form_input("Username", "Enter username", PortalState.edit_user_form_username, PortalState.handle_edit_user_form_username_change),
+                    _form_input("New Password", "Leave blank to keep current password", PortalState.edit_user_form_password, PortalState.handle_edit_user_form_password_change),
+                    rx.cond(
+                        PortalState.edit_user_form_error != "",
+                        rx.box(
+                            rx.hstack(
+                                rx.icon("circle-alert", size=16, color="#dc2626"),
+                                rx.text(PortalState.edit_user_form_error, size="2", color="#dc2626"),
+                                spacing="2",
+                            ),
+                            padding="0.75rem",
+                            border_radius="0.5rem",
+                            background="#fee2e2",
+                            border_left="4px solid #dc2626",
+                            width="100%",
+                        ),
+                    ),
+                    rx.hstack(
+                        rx.button("Cancel", on_click=PortalState.close_edit_user_form, variant="outline", color_scheme="gray", size="3"),
+                        rx.button(
+                            rx.hstack(rx.icon("save", size=16), rx.text("Save Changes"), spacing="2"),
+                            on_click=PortalState.save_edit_user,
+                            background="linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                            color="white",
+                            size="3",
+                        ),
+                        spacing="3",
+                        justify="end",
+                        width="100%",
+                        padding_top="0.5rem",
+                    ),
+                    spacing="4",
+                    width="100%",
+                ),
+                background="white",
+                border_radius="0.75rem",
+                padding="2rem",
+                max_width="480px",
+                width="90%",
+                box_shadow="0 20px 60px rgba(0,0,0,0.3)",
+            ),
+            position="fixed",
+            top="0",
+            left="0",
+            width="100vw",
+            height="100vh",
+            background="rgba(0,0,0,0.5)",
+            z_index="1000",
+            display="flex",
+            align_items="center",
+            justify_content="center",
+        ),
+    )
+
+
+def add_user_dialog() -> rx.Component:
+    return rx.cond(
+        PortalState.show_add_user_form,
+        rx.box(
+            rx.box(
+                rx.vstack(
+                    rx.hstack(
+                        rx.icon("user-plus", size=22, color="#667eea"),
+                        rx.heading("Add User", size="5", color="#1a1a1a", weight="bold"),
+                        rx.spacer(),
+                        rx.button(rx.icon("x", size=18), on_click=PortalState.close_add_user_form, variant="ghost", size="1"),
+                        width="100%",
+                        align_items="center",
+                    ),
+                    rx.divider(),
+                    _form_input("Username", "Enter username", PortalState.user_form_username, PortalState.handle_user_form_username_change),
+                    _form_input("Password", "Min. 6 characters", PortalState.user_form_password, PortalState.handle_user_form_password_change),
+                    _form_select(
+                        "Role",
+                        ["VIEWER", "EDITOR", "ADMIN"],
+                        PortalState.user_form_role,
+                        PortalState.handle_user_form_role_change,
+                    ),
+                    rx.cond(
+                        PortalState.user_form_error != "",
+                        rx.box(
+                            rx.hstack(
+                                rx.icon("circle-alert", size=16, color="#dc2626"),
+                                rx.text(PortalState.user_form_error, size="2", color="#dc2626"),
+                                spacing="2",
+                            ),
+                            padding="0.75rem",
+                            border_radius="0.5rem",
+                            background="#fee2e2",
+                            border_left="4px solid #dc2626",
+                            width="100%",
+                        ),
+                    ),
+                    rx.hstack(
+                        rx.button("Cancel", on_click=PortalState.close_add_user_form, variant="outline", color_scheme="gray", size="3"),
+                        rx.button(
+                            rx.hstack(rx.icon("user-plus", size=16), rx.text("Add User"), spacing="2"),
+                            on_click=PortalState.save_user,
+                            background="linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                            color="white",
+                            size="3",
+                        ),
+                        spacing="3",
+                        justify="end",
+                        width="100%",
+                        padding_top="0.5rem",
+                    ),
+                    spacing="4",
+                    width="100%",
+                ),
+                background="white",
+                border_radius="0.75rem",
+                padding="2rem",
+                max_width="480px",
+                width="90%",
+                box_shadow="0 20px 60px rgba(0,0,0,0.3)",
+            ),
+            position="fixed",
+            top="0",
+            left="0",
+            width="100vw",
+            height="100vh",
+            background="rgba(0,0,0,0.5)",
+            z_index="1000",
+            display="flex",
+            align_items="center",
+            justify_content="center",
+        ),
+    )
+
+
+def admin_panel() -> rx.Component:
+    return rx.vstack(
+        rx.card(
+            rx.vstack(
+                rx.hstack(
+                    rx.icon("users", size=22, color="#667eea"),
+                    rx.vstack(
+                        rx.heading("User Management", size="5", color="#1a1a1a"),
+                        rx.text(f"{PortalState.users.length()} users", size="1", color="#999"),
+                        spacing="1",
+                    ),
+                    rx.spacer(),
+                    rx.button(
+                        rx.hstack(rx.icon("user-plus", size=16), rx.text("Add User"), spacing="2"),
+                        on_click=PortalState.open_add_user_form,
+                        background="linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                        color="white",
+                        size="2",
+                    ),
+                    width="100%",
+                    align_items="center",
+                ),
+                users_table(),
+                spacing="4",
+                width="100%",
+            ),
+            width="100%",
+            padding="2rem",
+            background="white",
+            border_radius="0.75rem",
+            box_shadow="0 4px 16px rgba(0,0,0,0.08)",
+        ),
+        spacing="5",
+        padding="2rem",
+        width="100%",
+    )
+
+
+def companies_section() -> rx.Component:
+    return rx.vstack(
+        rx.card(
+            rx.vstack(
+                rx.hstack(
+                    rx.icon("search", size=20, color="#667eea"),
+                    rx.vstack(
+                        rx.text("Quick Search", size="2", weight="bold", color="#333"),
+                        rx.text("Find companies by CIN or name", size="1", color="#999"),
+                        spacing="1",
+                    ),
+                    width="100%",
+                ),
+                rx.hstack(
+                    rx.input(
+                        placeholder="Enter CIN or company name...",
+                        value=PortalState.search_query,
+                        on_change=PortalState.handle_search_input,
+                        width="100%",
+                        padding="0.875rem 1rem",
+                        border_radius="0.625rem",
+                        border="2px solid #e0e0e0",
+                        background="white",
+                        font_size="1rem",
+                        color="#1a1a1a",
+                        font_weight="500",
+                        _focus={"border_color": "#667eea", "box_shadow": "0 0 0 4px rgba(102,126,234,0.1)"},
+                        _placeholder={"color": "#999"},
+                    ),
+                    rx.button(
+                        rx.hstack(rx.icon("search", size=16), rx.text("Search"), spacing="2"),
+                        on_click=PortalState.load_companies,
+                        background="linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                        color="white",
+                        size="2",
+                        _hover={"box_shadow": "0 8px 16px rgba(102,126,234,0.3)"},
+                    ),
+                    width="100%",
+                    spacing="3",
+                    align_items="center",
+                ),
+                spacing="4",
+                width="100%",
+            ),
+            width="100%",
+            padding="1.5rem",
+            background="white",
+            border_radius="0.75rem",
+            box_shadow="0 2px 12px rgba(0,0,0,0.06)",
+        ),
+        rx.card(
+            rx.vstack(
+                rx.hstack(
+                    rx.icon("database", size=22, color="#667eea"),
+                    rx.vstack(
+                        rx.heading("Company Registry", size="5", color="#1a1a1a"),
+                        rx.text(f"{PortalState.companies.length()} companies", size="1", color="#999"),
+                        spacing="1",
+                    ),
+                    rx.spacer(),
+                    rx.cond(
+                        (PortalState.role == "ADMIN") | (PortalState.role == "EDITOR"),
+                        rx.button(
+                            rx.hstack(rx.icon("plus", size=16), rx.text("Add Company"), spacing="2"),
+                            on_click=PortalState.open_add_form,
+                            background="linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                            color="white",
+                            size="2",
+                        ),
+                    ),
+                    width="100%",
+                    align_items="center",
+                ),
+                companies_table(),
+                spacing="4",
+                width="100%",
+            ),
+            width="100%",
+            padding="2rem",
+            background="white",
+            border_radius="0.75rem",
+            box_shadow="0 4px 16px rgba(0,0,0,0.08)",
+        ),
+        spacing="5",
+        padding="2rem",
+        width="100%",
+    )
+
+
 def dashboard_page() -> rx.Component:
     return rx.box(
         rx.vstack(
-            # Premium Header
+            # Header
             rx.box(
                 rx.hstack(
                     rx.hstack(
@@ -639,11 +1233,7 @@ def dashboard_page() -> rx.Component:
                         rx.divider(orientation="vertical", margin_x="1rem"),
                         rx.badge(PortalState.role, color_scheme="amber", variant="solid", size="2"),
                         rx.button(
-                            rx.hstack(
-                                rx.icon("log-out", size=16),
-                                rx.text("Logout"),
-                                spacing="2",
-                            ),
+                            rx.hstack(rx.icon("log-out", size=16), rx.text("Logout"), spacing="2"),
                             on_click=PortalState.handle_logout,
                             variant="outline",
                             color_scheme="red",
@@ -660,121 +1250,76 @@ def dashboard_page() -> rx.Component:
                 width="100%",
                 box_shadow="0 4px 12px rgba(0,0,0,0.1)",
             ),
-            # Main Content Area
-            rx.vstack(
-                # Search Section
-                rx.card(
-                    rx.vstack(
-                        rx.hstack(
-                            rx.icon("search", size=20, color="#667eea"),
-                            rx.vstack(
-                                rx.text("Quick Search", size="2", weight="bold", color="#333"),
-                                rx.text("Find companies by CIN or name", size="1", color="#999"),
-                                spacing="1",
-                            ),
-                            width="100%",
-                        ),
-                        rx.hstack(
-                            rx.input(
-                                placeholder="Enter CIN or company name...",
-                                value=PortalState.search_query,
-                                on_change=PortalState.handle_search_input,
-                                width="100%",
-                                padding="0.875rem 1rem",
-                                border_radius="0.625rem",
-                                border="2px solid #e0e0e0",
-                                background="white",
-                                font_size="1rem",
-                                color="#1a1a1a",
-                                font_weight="500",
-                                _focus={"border_color": "#667eea", "box_shadow": "0 0 0 4px rgba(102,126,234,0.1)"},
-                                _placeholder={"color": "#999"},
-                            ),
-                            rx.button(
-                                rx.hstack(
-                                    rx.icon("search", size=16),
-                                    rx.text("Search"),
-                                    spacing="2",
-                                ),
-                                on_click=PortalState.load_companies,
-                                background="linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-                                color="white",
-                                size="2",
-                                _hover={"box_shadow": "0 8px 16px rgba(102,126,234,0.3)"},
-                            ),
-                            width="100%",
-                            spacing="3",
-                            align_items="center",
-                        ),
-                        spacing="4",
-                        width="100%",
+            # Tab navigation bar (Admin tab visible only for ADMIN role)
+            rx.box(
+                rx.hstack(
+                    rx.button(
+                        rx.hstack(rx.icon("building-2", size=15), rx.text("Companies"), spacing="2"),
+                        on_click=PortalState.switch_tab("companies"),
+                        variant="ghost",
+                        size="2",
+                        color=rx.cond(PortalState.active_tab == "companies", "white", "rgba(255,255,255,0.65)"),
+                        background=rx.cond(PortalState.active_tab == "companies", "rgba(255,255,255,0.22)", "transparent"),
+                        border_radius="0.5rem",
+                        _hover={"background": "rgba(255,255,255,0.15)", "color": "white"},
                     ),
-                    width="100%",
-                    padding="1.5rem",
-                    background="white",
-                    border_radius="0.75rem",
-                    box_shadow="0 2px 12px rgba(0,0,0,0.06)",
-                ),
-                # Error Message
-                rx.cond(
-                    PortalState.error_message != "",
-                    rx.box(
-                        rx.hstack(
-                            rx.icon("circle-alert", size=20, color="#dc2626"),
-                            rx.text(PortalState.error_message, size="2", color="#dc2626", weight="medium"),
-                            spacing="2",
-                            width="100%",
+                    rx.cond(
+                        PortalState.role == "ADMIN",
+                        rx.button(
+                            rx.hstack(rx.icon("shield-check", size=15), rx.text("Admin"), spacing="2"),
+                            on_click=PortalState.switch_tab("admin"),
+                            variant="ghost",
+                            size="2",
+                            color=rx.cond(PortalState.active_tab == "admin", "white", "rgba(255,255,255,0.65)"),
+                            background=rx.cond(PortalState.active_tab == "admin", "rgba(255,255,255,0.22)", "transparent"),
+                            border_radius="0.5rem",
+                            _hover={"background": "rgba(255,255,255,0.15)", "color": "white"},
                         ),
-                        padding="1rem",
-                        border_radius="0.625rem",
-                        background="#fee2e2",
-                        border_left="4px solid #dc2626",
-                        width="100%",
                     ),
+                    spacing="1",
+                    padding="0.5rem 1.5rem",
                 ),
-                # Companies Table
-                rx.card(
-                    rx.vstack(
-                        rx.hstack(
-                            rx.icon("database", size=22, color="#667eea"),
-                            rx.vstack(
-                                rx.heading("Company Registry", size="5", color="#1a1a1a"),
-                                rx.text(f"{PortalState.companies.length()} companies", size="1", color="#999"),
-                                spacing="1",
-                            ),
-                            rx.spacer(),
-                            rx.cond(
-                                (PortalState.role == "ADMIN") | (PortalState.role == "EDITOR"),
-                                rx.button(
-                                    rx.hstack(rx.icon("plus", size=16), rx.text("Add Company"), spacing="2"),
-                                    on_click=PortalState.open_add_form,
-                                    background="linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-                                    color="white",
-                                    size="2",
-                                ),
-                            ),
-                            width="100%",
-                            align_items="center",
-                        ),
-                        companies_table(),
-                        spacing="4",
-                        width="100%",
-                    ),
-                    width="100%",
-                    padding="2rem",
-                    background="white",
-                    border_radius="0.75rem",
-                    box_shadow="0 4px 16px rgba(0,0,0,0.08)",
-                ),
-                spacing="5",
-                padding="2rem",
+                background="linear-gradient(90deg, #5a6fd6 0%, #6a3f95 100%)",
                 width="100%",
+            ),
+            # Error banner (shared across tabs)
+            rx.cond(
+                PortalState.error_message != "",
+                rx.box(
+                    rx.hstack(
+                        rx.icon("circle-alert", size=20, color="#dc2626"),
+                        rx.text(PortalState.error_message, size="2", color="#dc2626", weight="medium"),
+                        rx.spacer(),
+                        rx.button(
+                            rx.icon("x", size=14),
+                            on_click=PortalState.clear_error,
+                            variant="ghost",
+                            size="1",
+                            color="#dc2626",
+                        ),
+                        spacing="2",
+                        width="100%",
+                        align_items="center",
+                    ),
+                    padding="0.75rem 2rem",
+                    background="#fee2e2",
+                    border_bottom="2px solid #fca5a5",
+                    width="100%",
+                ),
+            ),
+            # Tab content
+            rx.cond(
+                PortalState.active_tab == "companies",
+                companies_section(),
+                admin_panel(),
             ),
             spacing="0",
             width="100%",
-            height="100vh",
+            min_height="100vh",
         ),
         add_company_dialog(),
+        add_user_dialog(),
+        edit_user_dialog(),
         background="#f5f7fa",
         width="100%",
         padding="0",
