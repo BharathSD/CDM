@@ -1,0 +1,26 @@
+# ── CDM Portal – client deployment ────────────────────────────────────────────
+# This file is the only thing the client needs.
+# The app image is pre-built and pulled from Docker Hub automatically.
+#
+# Requirements: Docker Desktop  →  https://www.docker.com/products/docker-desktop/
+#
+# To start:   docker compose up
+# To stop:    docker compose down
+# App URL:    http://localhost:3000
+# ──────────────────────────────────────────────────────────────────────────────
+
+services:
+  cdm-portal:
+    image: YOUR_DOCKERHUB_USERNAME/cdm-portal:latest   # ← update before sending
+    container_name: cdm-portal
+    ports:
+      - "3000:3000"
+      - "8001:8001"
+    volumes:
+      - cdm_db:/app/data
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+
+volumes:
+  cdm_db:

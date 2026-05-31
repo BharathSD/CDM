@@ -12,5 +12,16 @@ apps/api/prisma/dev.db-journal
 __pycache__/
 *.py[cod]
 *.pyo
-reflex_portal/.web/
-reflex_portal/data/
+*.egg-info/
+
+# Reflex build artefacts & runtime state
+.web/
+.states/
+reflex.lock/
+
+# Local database (use Docker volume or backups instead)
+data/
+*.db
+
+# Leftover reflex_portal scaffold (generated, safe to delete)
+reflex_portal/

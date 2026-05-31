@@ -1,0 +1,13 @@
+# ── Testing override: fresh ephemeral DB on every `docker compose up` ──────────
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.testing.yml up --build
+#
+# The named volume is replaced with a tmpfs mount so the database starts clean
+# for every test run.  No data is written to the host disk.
+
+services:
+  cdm-portal:
+    environment:
+      - SEED_RESET=1   # tells entrypoint.sh to wipe and re-seed on each boot
+    tmpfs:
+      - /app/data      # ephemeral SQLite – discarded when the container stops

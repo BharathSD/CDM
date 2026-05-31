@@ -15,6 +15,7 @@ export function DashboardPage({ auth }: DashboardPageProps) {
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<Company | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const canEdit = auth.user?.role === "ADMIN" || auth.user?.role === "EDITOR";
@@ -27,8 +28,10 @@ export function DashboardPage({ auth }: DashboardPageProps) {
 
   const createMutation = useMutation({
     mutationFn: (payload: Partial<Company>) => createCompany(auth.token!, payload),
-    onSuccess: () => {
+    onSuccess: (company) => {
       setShowCreate(false);
+      setSuccessMessage(`Company "${company.name}" added successfully.`);
+      setTimeout(() => setSuccessMessage(null), 4000);
       queryClient.invalidateQueries({ queryKey: ["companies"] });
     },
   });
@@ -68,10 +71,20 @@ export function DashboardPage({ auth }: DashboardPageProps) {
         {canEdit ? <button onClick={() => setShowCreate((v) => !v)}>{showCreate ? "Close" : "Add Company"}</button> : null}
       </section>
 
+      {successMessage ? (
+        <section className="card" style={{ borderLeft: "4px solid #22c55e", color: "#166534" }}>
+          {successMessage}
+        </section>
+      ) : null}
+
       {showCreate && canEdit ? (
         <section className="card">
           <h2>Add Company</h2>
-          <CompanyForm submitLabel="Create Company" onSubmit={(data) => createMutation.mutateAsync(data)} />
+          <CompanyForm
+            submitLabel="Create Company"
+            onSubmit={(data) => createMutation.mutateAsync(data)}
+            onCancel={() => setShowCreate(false)}
+          />
         </section>
       ) : null}
 

@@ -1,0 +1,16 @@
+# ── Standard run (data persisted across restarts) ──────────────────────────────
+services:
+  cdm-portal:
+    build: .
+    container_name: cdm-portal
+    ports:
+      - "3000:3000"   # Next.js frontend
+      - "8001:8001"   # FastAPI / WebSocket backend
+    volumes:
+      - cdm_db:/app/data   # SQLite database survives container restarts
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+
+volumes:
+  cdm_db:
