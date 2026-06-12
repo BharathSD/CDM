@@ -44,6 +44,22 @@ class Company(Base):
     date_of_incorporation: Mapped[str | None] = mapped_column(String(20), nullable=True)
     email: Mapped[str | None] = mapped_column(String(254), nullable=True)
     address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Extended MCA fields
+    roc_code: Mapped[str | None] = mapped_column(String(140), nullable=True)  # ROC Name
+    roc_office: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    rd_name: Mapped[str | None] = mapped_column(String(140), nullable=True)
+    rd_region: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    registration_number: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    authorised_capital: Mapped[float | None] = mapped_column(Float, nullable=True)
+    paid_up_capital: Mapped[float | None] = mapped_column(Float, nullable=True)
+    number_of_members: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    date_of_last_agm: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    date_of_balance_sheet: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    listed_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    suspended_at_stock_exchange: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    pin_code: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    country: Mapped[str | None] = mapped_column(String(60), nullable=True)
 
 
 class Director(Base):
@@ -87,6 +103,21 @@ def init_db() -> None:
             ("date_of_incorporation", "ALTER TABLE companies ADD COLUMN date_of_incorporation VARCHAR(20)"),
             ("email", "ALTER TABLE companies ADD COLUMN email VARCHAR(254)"),
             ("address", "ALTER TABLE companies ADD COLUMN address TEXT"),
+            ("roc_code", "ALTER TABLE companies ADD COLUMN roc_code VARCHAR(140)"),
+            ("roc_office", "ALTER TABLE companies ADD COLUMN roc_office VARCHAR(100)"),
+            ("rd_name", "ALTER TABLE companies ADD COLUMN rd_name VARCHAR(140)"),
+            ("rd_region", "ALTER TABLE companies ADD COLUMN rd_region VARCHAR(100)"),
+            ("registration_number", "ALTER TABLE companies ADD COLUMN registration_number VARCHAR(20)"),
+            ("authorised_capital", "ALTER TABLE companies ADD COLUMN authorised_capital FLOAT"),
+            ("paid_up_capital", "ALTER TABLE companies ADD COLUMN paid_up_capital FLOAT"),
+            ("number_of_members", "ALTER TABLE companies ADD COLUMN number_of_members VARCHAR(20)"),
+            ("date_of_last_agm", "ALTER TABLE companies ADD COLUMN date_of_last_agm VARCHAR(20)"),
+            ("date_of_balance_sheet", "ALTER TABLE companies ADD COLUMN date_of_balance_sheet VARCHAR(20)"),
+            ("listed_status", "ALTER TABLE companies ADD COLUMN listed_status VARCHAR(20)"),
+            ("suspended_at_stock_exchange", "ALTER TABLE companies ADD COLUMN suspended_at_stock_exchange VARCHAR(10)"),
+            ("pin_code", "ALTER TABLE companies ADD COLUMN pin_code VARCHAR(10)"),
+            ("phone", "ALTER TABLE companies ADD COLUMN phone VARCHAR(20)"),
+            ("country", "ALTER TABLE companies ADD COLUMN country VARCHAR(60)"),
         ]
         for col_name, ddl in migrations:
             if col_name not in cols:
