@@ -88,3 +88,42 @@ export async function updateCompany(token: string, id: string, payload: Partial<
     body: payload,
   });
 }
+
+// ─── Directors ───────────────────────────────────────────────────────────────
+
+export type Director = {
+  id: string;
+  din: string;
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  status: string;
+  notes?: string | null;
+};
+
+export async function getDirectors(token: string, query: string) {
+  const params = new URLSearchParams();
+  if (query.trim()) {
+    params.set("query", query.trim());
+  }
+  return request<{ items: Director[]; total: number; page: number; pageSize: number }>(
+    `/directors?${params.toString()}`,
+    { token }
+  );
+}
+
+export async function createDirector(token: string, payload: Partial<Director>) {
+  return request<Director>("/directors", {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function updateDirector(token: string, id: string, payload: Partial<Director>) {
+  return request<Director>(`/directors/${id}`, {
+    method: "PUT",
+    token,
+    body: payload,
+  });
+}

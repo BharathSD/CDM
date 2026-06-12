@@ -7,22 +7,18 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum Role {
-  ADMIN
-  EDITOR
-  VIEWER
-}
-
 model User {
   id           String   @id @default(cuid())
   username     String   @unique
   passwordHash String
-  role         Role     @default(VIEWER)
+  role         String   @default("VIEWER")
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  createdCompanies Company[] @relation("CreatedCompanies")
-  updatedCompanies Company[] @relation("UpdatedCompanies")
+  createdCompanies Company[]  @relation("CreatedCompanies")
+  updatedCompanies Company[]  @relation("UpdatedCompanies")
+  createdDirectors Director[] @relation("CreatedDirectors")
+  updatedDirectors Director[] @relation("UpdatedDirectors")
 }
 
 model Company {
@@ -52,4 +48,24 @@ model Company {
 
   @@index([name])
   @@index([cin])
+}
+
+model Director {
+  id          String   @id @default(cuid())
+  din         String   @unique
+  name        String
+  email       String?
+  phone       String?
+  status      String   @default("active")
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String
+  updatedById String
+
+  createdBy User @relation("CreatedDirectors", fields: [createdById], references: [id])
+  updatedBy User @relation("UpdatedDirectors", fields: [updatedById], references: [id])
+
+  @@index([name])
+  @@index([din])
 }

@@ -4,9 +4,9 @@ import re
 from datetime import datetime
 
 import reflex as rx
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 
-from .database import Company, SessionLocal, User, hash_password, init_db, verify_password
+from .database import Company, CompanyDirector, Director, SessionLocal, User, hash_password, init_db, verify_password
 
 init_db()
 
@@ -82,6 +82,37 @@ class PortalState(rx.State):
     edit_form_address: str = ""
     edit_form_error: str = ""
 
+    # ── Directors ─────────────────────────────────────────────────────────────
+    directors: list[dict] = []
+    directors_search_query: str = ""
+    show_add_director_form: bool = False
+    form_din: str = ""
+    form_director_name: str = ""
+    form_director_email: str = ""
+    form_director_phone: str = ""
+    form_director_error: str = ""
+    # Edit director form
+    show_edit_director_form: bool = False
+    edit_director_id: str = ""
+    edit_form_din: str = ""
+    edit_form_director_name: str = ""
+    edit_form_director_email: str = ""
+    edit_form_director_phone: str = ""
+    edit_form_director_error: str = ""
+
+    # ── Company-Director associations ─────────────────────────────────────────
+    show_manage_directors: bool = False
+    managing_company_id: str = ""
+    managing_company_name: str = ""
+    company_directors: list[dict] = []
+    assoc_search_query: str = ""
+    assoc_search_results: list[dict] = []
+    assoc_selected_director_id: str = ""
+    assoc_selected_director_name: str = ""
+    assoc_share_percent: str = ""
+    assoc_error: str = ""
+    confirm_remove_assoc_id: str = ""
+
     # ── User management (admin only) ──────────────────────────────────────────
     active_tab: str = "companies"
     users: list[dict] = []
@@ -143,6 +174,39 @@ class PortalState(rx.State):
         self.edit_user_form_password = ""
         self.edit_user_form_error = ""
 
+    def _clear_director_form(self) -> None:
+        """Reset every director-form var to its default."""
+        self.show_add_director_form = False
+        self.form_din = ""
+        self.form_director_name = ""
+        self.form_director_email = ""
+        self.form_director_phone = ""
+        self.form_director_error = ""
+
+    def _clear_edit_director_form(self) -> None:
+        """Reset every edit-director-form var to its default."""
+        self.show_edit_director_form = False
+        self.edit_director_id = ""
+        self.edit_form_din = ""
+        self.edit_form_director_name = ""
+        self.edit_form_director_email = ""
+        self.edit_form_director_phone = ""
+        self.edit_form_director_error = ""
+
+    def _clear_manage_directors(self) -> None:
+        """Reset company-director association panel state."""
+        self.show_manage_directors = False
+        self.managing_company_id = ""
+        self.managing_company_name = ""
+        self.company_directors = []
+        self.assoc_search_query = ""
+        self.assoc_search_results = []
+        self.assoc_selected_director_id = ""
+        self.assoc_selected_director_name = ""
+        self.assoc_share_percent = ""
+        self.assoc_error = ""
+        self.confirm_remove_assoc_id = ""
+
     # ── Computed vars ─────────────────────────────────────────────────────────
 
     @rx.var
@@ -184,8 +248,11 @@ class PortalState(rx.State):
         self._clear_edit_company_form()
         self._clear_user_form()
         self._clear_edit_user_form()
+        self._clear_director_form()
+        self._clear_edit_director_form()
         if self.is_authenticated:
             self.load_companies()
+            self.load_directors()
             if self.active_tab == "admin" and self.role == "ADMIN":
                 self.load_users()
 
@@ -221,6 +288,7 @@ class PortalState(rx.State):
     def handle_logout(self):
         self._clear_form()
         self._clear_user_form()
+        self._clear_director_form()
         self.active_tab = "companies"
         self.is_authenticated = False
         self.current_user = ""
@@ -230,7 +298,9 @@ class PortalState(rx.State):
         self.error_message = ""
         self.companies = []
         self.users = []
+        self.directors = []
         self.search_query = ""
+        self.directors_search_query = ""
         self.filter_classes = []
         self.filter_categories = []
         self.filter_sub_categories = []
@@ -242,6 +312,8 @@ class PortalState(rx.State):
         self.sub_category_search = ""
         self._clear_edit_company_form()
         self._clear_edit_user_form()
+        self._clear_edit_director_form()
+        self._clear_manage_directors()
 
     def clear_error(self):
         self.error_message = ""
@@ -649,6 +721,8 @@ class PortalState(rx.State):
     def switch_tab(self, tab: str):
         self.active_tab = tab
         self.error_message = ""
+        if tab == "directors":
+            self.load_directors()
         if tab == "admin" and self.role == "ADMIN":
             self.load_users()
 
@@ -813,6 +887,331 @@ class PortalState(rx.State):
                     self.current_user = username
         self.is_saving = False
         self.load_users()
+
+    # ── Directors ────────────────────────────────────────────────────────────
+
+    def load_directors(self):
+        with SessionLocal() as session:
+            query = session.query(Director)
+            if self.directors_search_query.strip():
+                term = f"%{self.directors_search_query.strip()}%"
+                query = query.filter(
+                    or_(Director.din.ilike(term), Director.name.ilike(term))
+                )
+            rows = query.order_by(Director.id.desc()).all()
+            self.directors = [
+                {
+                    "id": str(r.id),
+                    "din": r.din,
+                    "name": r.name,
+                    "email": r.email or "",
+                    "phone": r.phone or "",
+                    "status": r.status,
+                }
+                for r in rows
+            ]
+
+    def handle_directors_search(self, value: str):
+        self.directors_search_query = value
+        self.load_directors()
+
+    def handle_form_din_change(self, value: str):
+        if self.show_add_director_form:
+            self.form_din = value
+
+    def handle_form_director_name_change(self, value: str):
+        if self.show_add_director_form:
+            self.form_director_name = value
+
+    def handle_form_director_email_change(self, value: str):
+        if self.show_add_director_form:
+            self.form_director_email = value
+
+    def handle_form_director_phone_change(self, value: str):
+        if self.show_add_director_form:
+            self.form_director_phone = value
+
+    def open_add_director_form(self):
+        self._clear_director_form()
+        self.show_add_director_form = True
+
+    def close_add_director_form(self):
+        self._clear_director_form()
+
+    def save_director(self):
+        if self.role not in ("ADMIN", "EDITOR"):
+            self.form_director_error = "You do not have permission to add directors."
+            return
+        din = self.form_din.strip()
+        name = self.form_director_name.strip()
+        email = self.form_director_email.strip()
+        phone = self.form_director_phone.strip()
+        if not din or not name:
+            self.form_director_error = "DIN and Name are required."
+            return
+        if email and not _EMAIL_RE.match(email):
+            self.form_director_error = "Enter a valid email address."
+            return
+        self._clear_director_form()
+        self.is_saving = True
+        return PortalState.commit_save_director(din, name, email, phone)
+
+    def commit_save_director(self, din: str, name: str, email: str = "", phone: str = ""):
+        with SessionLocal() as session:
+            if session.query(Director).filter(Director.din == din).first():
+                self.error_message = f"A director with DIN '{din}' already exists."
+                self.is_saving = False
+                return
+            session.add(Director(din=din, name=name, email=email or None, phone=phone or None))
+            session.commit()
+        self.is_saving = False
+        self.load_directors()
+
+    def open_edit_director_form(self, director_id: str):
+        self._clear_edit_director_form()
+        self.edit_director_id = director_id
+        for d in self.directors:
+            if d["id"] == director_id:
+                self.edit_form_din = d["din"]
+                self.edit_form_director_name = d["name"]
+                self.edit_form_director_email = d["email"]
+                self.edit_form_director_phone = d["phone"]
+                break
+        self.show_edit_director_form = True
+
+    def close_edit_director_form(self):
+        self._clear_edit_director_form()
+
+    def handle_edit_form_din_change(self, value: str):
+        if self.show_edit_director_form:
+            self.edit_form_din = value
+
+    def handle_edit_form_director_name_change(self, value: str):
+        if self.show_edit_director_form:
+            self.edit_form_director_name = value
+
+    def handle_edit_form_director_email_change(self, value: str):
+        if self.show_edit_director_form:
+            self.edit_form_director_email = value
+
+    def handle_edit_form_director_phone_change(self, value: str):
+        if self.show_edit_director_form:
+            self.edit_form_director_phone = value
+
+    def save_edit_director(self):
+        if self.role not in ("ADMIN", "EDITOR"):
+            self.edit_form_director_error = "You do not have permission to edit directors."
+            return
+        din = self.edit_form_din.strip()
+        name = self.edit_form_director_name.strip()
+        email = self.edit_form_director_email.strip()
+        phone = self.edit_form_director_phone.strip()
+        if not din or not name:
+            self.edit_form_director_error = "DIN and Name are required."
+            return
+        if email and not _EMAIL_RE.match(email):
+            self.edit_form_director_error = "Enter a valid email address."
+            return
+        did = self.edit_director_id
+        self._clear_edit_director_form()
+        self.is_saving = True
+        return PortalState.commit_edit_director(did, din, name, email, phone)
+
+    def commit_edit_director(self, director_id: str, din: str, name: str, email: str = "", phone: str = ""):
+        try:
+            did = int(director_id)
+        except (ValueError, TypeError):
+            self.error_message = f"Invalid director ID '{director_id}'."
+            self.is_saving = False
+            return
+        with SessionLocal() as session:
+            existing = session.query(Director).filter(Director.din == din, Director.id != did).first()
+            if existing:
+                self.error_message = f"Another director with DIN '{din}' already exists."
+                self.is_saving = False
+                return
+            director = session.query(Director).filter(Director.id == did).first()
+            if director:
+                director.din = din
+                director.name = name
+                director.email = email or None
+                director.phone = phone or None
+                session.commit()
+        self.is_saving = False
+        self.load_directors()
+
+    def confirm_delete_director(self, director_id: str):
+        if self.role not in ("ADMIN", "EDITOR"):
+            self.error_message = "You do not have permission to delete directors."
+            return
+        try:
+            did = int(director_id)
+        except (ValueError, TypeError):
+            self.error_message = f"Invalid director ID '{director_id}'."
+            return
+        with SessionLocal() as session:
+            director = session.query(Director).filter(Director.id == did).first()
+            if director:
+                session.delete(director)
+                session.commit()
+        self.load_directors()
+
+    # ── Company-Director associations ────────────────────────────────────────
+
+    def _load_company_directors(self):
+        try:
+            cid = int(self.managing_company_id)
+        except (ValueError, TypeError):
+            return
+        with SessionLocal() as session:
+            rows = (
+                session.query(CompanyDirector, Director)
+                .join(Director, CompanyDirector.director_id == Director.id)
+                .filter(CompanyDirector.company_id == cid)
+                .all()
+            )
+            self.company_directors = [
+                {
+                    "assoc_id": str(cd.id),
+                    "director_id": str(d.id),
+                    "din": d.din,
+                    "name": d.name,
+                    "share_percent": str(cd.share_percent) if cd.share_percent is not None else "",
+                }
+                for cd, d in rows
+            ]
+
+    def open_manage_directors(self, company_id: str):
+        self._clear_manage_directors()
+        self.managing_company_id = company_id
+        for c in self.companies:
+            if c["id"] == company_id:
+                self.managing_company_name = c["name"]
+                break
+        self.show_manage_directors = True
+        self._load_company_directors()
+
+    def close_manage_directors(self):
+        self._clear_manage_directors()
+
+    def handle_assoc_search(self, value: str):
+        self.assoc_search_query = value
+        self.assoc_selected_director_id = ""
+        self.assoc_selected_director_name = ""
+        if not value.strip():
+            self.assoc_search_results = []
+            return
+        with SessionLocal() as session:
+            term = f"%{value.strip()}%"
+            rows = (
+                session.query(Director)
+                .filter(or_(Director.din.ilike(term), Director.name.ilike(term)))
+                .limit(8)
+                .all()
+            )
+            self.assoc_search_results = [
+                {"id": str(r.id), "din": r.din, "name": r.name}
+                for r in rows
+            ]
+
+    def select_director_for_assoc(self, director_id: str):
+        self.assoc_selected_director_id = director_id
+        self.assoc_search_results = []
+        try:
+            did = int(director_id)
+        except (ValueError, TypeError):
+            return
+        with SessionLocal() as session:
+            d = session.query(Director).filter(Director.id == did).first()
+            if d:
+                self.assoc_selected_director_name = f"{d.name}  (DIN: {d.din})"
+                self.assoc_search_query = d.name
+
+    def handle_assoc_share_change(self, value: str):
+        self.assoc_share_percent = value
+
+    def add_director_to_company(self):
+        if self.role not in ("ADMIN", "EDITOR"):
+            self.assoc_error = "You do not have permission."
+            return
+        if not self.assoc_selected_director_id:
+            self.assoc_error = "Please select a director from the search results."
+            return
+        share_str = str(self.assoc_share_percent).strip()
+        if not share_str:
+            self.assoc_error = "Share percentage is required."
+            return
+        try:
+            share_val = float(share_str)
+            if share_val <= 0 or share_val > 100:
+                self.assoc_error = "Share percentage must be greater than 0 and at most 100."
+                return
+        except ValueError:
+            self.assoc_error = "Share percentage must be a number."
+            return
+        self.assoc_error = ""
+        cid = self.managing_company_id
+        did = self.assoc_selected_director_id
+        self.is_saving = True
+        return PortalState.commit_add_director_to_company(cid, did, share_str)
+
+    def handle_assoc_share_change(self, value):  # noqa: override with untyped to avoid Reflex coercion
+        self.assoc_share_percent = str(value) if value is not None else ""
+
+    def commit_add_director_to_company(self, company_id: str, director_id: str, share_str: str):
+        try:
+            cid = int(company_id)
+            did = int(director_id)
+        except (ValueError, TypeError):
+            self.is_saving = False
+            return
+        share_val = float(share_str) if share_str else None
+        with SessionLocal() as session:
+            existing = session.query(CompanyDirector).filter(
+                CompanyDirector.company_id == cid,
+                CompanyDirector.director_id == did,
+            ).first()
+            if existing:
+                self.assoc_error = "This director is already associated with this company."
+                self.is_saving = False
+                return
+            if share_val is not None:
+                current_total = session.query(func.sum(CompanyDirector.share_percent)).filter(
+                    CompanyDirector.company_id == cid,
+                    CompanyDirector.share_percent.isnot(None),
+                ).scalar() or 0.0
+                if current_total + share_val > 100:
+                    self.assoc_error = f"Total share would exceed 100% (current total: {current_total:.2f}%)."
+                    self.is_saving = False
+                    return
+            session.add(CompanyDirector(company_id=cid, director_id=did, share_percent=share_val))
+            session.commit()
+        self.assoc_share_percent = ""
+        self.assoc_error = ""
+        self.is_saving = False
+        self._load_company_directors()
+
+    def prompt_remove_director(self, assoc_id: str):
+        self.confirm_remove_assoc_id = assoc_id
+
+    def cancel_remove_director(self):
+        self.confirm_remove_assoc_id = ""
+
+    def remove_director_from_company(self, assoc_id: str):
+        if self.role not in ("ADMIN", "EDITOR"):
+            self.assoc_error = "You do not have permission."
+            return
+        self.confirm_remove_assoc_id = ""
+        try:
+            aid = int(assoc_id)
+        except (ValueError, TypeError):
+            return
+        with SessionLocal() as session:
+            assoc = session.query(CompanyDirector).filter(CompanyDirector.id == aid).first()
+            if assoc:
+                session.delete(assoc)
+                session.commit()
+        self._load_company_directors()
 
 
 def login_page() -> rx.Component:
@@ -1325,17 +1724,25 @@ def companies_table() -> rx.Component:
                         )
                     ),
                     rx.table.cell(
-                        rx.cond(
-                            (PortalState.role == "ADMIN") | (PortalState.role == "EDITOR"),
-                            rx.hstack(
-                                rx.button(
-                                    rx.icon("pencil", size=14),
-                                    on_click=PortalState.open_edit_company_form(item["id"]),
-                                    color_scheme="blue",
-                                    variant="ghost",
-                                    size="1",
-                                ),
-                                rx.dialog.root(
+                        rx.hstack(
+                            rx.button(
+                                rx.icon("users", size=14),
+                                on_click=PortalState.open_manage_directors(item["id"]),
+                                color_scheme="violet",
+                                variant="ghost",
+                                size="1",
+                            ),
+                            rx.cond(
+                                (PortalState.role == "ADMIN") | (PortalState.role == "EDITOR"),
+                                rx.hstack(
+                                    rx.button(
+                                        rx.icon("pencil", size=14),
+                                        on_click=PortalState.open_edit_company_form(item["id"]),
+                                        color_scheme="blue",
+                                        variant="ghost",
+                                        size="1",
+                                    ),
+                                    rx.dialog.root(
                                     rx.dialog.trigger(
                                         rx.button(
                                             rx.icon("trash-2", size=14),
@@ -1415,8 +1822,10 @@ def companies_table() -> rx.Component:
                                         background="white",
                                     ),
                                 ),
-                                spacing="1",
+                                    spacing="1",
+                                ),
                             ),
+                            spacing="1",
                         )
                     ),
                     _hover={"background": "rgba(102,126,234,0.04)"},
@@ -1670,6 +2079,627 @@ def add_user_dialog() -> rx.Component:
                 padding="2rem",
                 max_width="480px",
                 width="90%",
+                box_shadow="0 20px 60px rgba(0,0,0,0.3)",
+            ),
+            position="fixed",
+            top="0",
+            left="0",
+            width="100vw",
+            height="100vh",
+            background="rgba(0,0,0,0.5)",
+            z_index="1000",
+            display="flex",
+            align_items="center",
+            justify_content="center",
+        ),
+    )
+
+
+def add_director_dialog() -> rx.Component:
+    return rx.cond(
+        PortalState.show_add_director_form,
+        rx.box(
+            rx.box(
+                rx.vstack(
+                    rx.hstack(
+                        rx.icon("user-round-plus", size=22, color="#667eea"),
+                        rx.heading("Add Director", size="5", color="#1a1a1a", weight="bold"),
+                        rx.spacer(),
+                        rx.button(
+                            rx.icon("x", size=18),
+                            on_click=PortalState.close_add_director_form,
+                            variant="ghost",
+                            size="1",
+                        ),
+                        width="100%",
+                        align_items="center",
+                    ),
+                    rx.divider(),
+                    _form_input("DIN (Director Identification Number)", "e.g. 00123456", PortalState.form_din, PortalState.handle_form_din_change),
+                    _form_input("Full Name", "Enter director's full name", PortalState.form_director_name, PortalState.handle_form_director_name_change),
+                    _form_input("Email ID", "e.g. director@example.com", PortalState.form_director_email, PortalState.handle_form_director_email_change, "email"),
+                    _form_input("Phone Number", "e.g. +91 98765 43210", PortalState.form_director_phone, PortalState.handle_form_director_phone_change),
+                    rx.cond(
+                        PortalState.form_director_error != "",
+                        rx.box(
+                            rx.hstack(
+                                rx.icon("circle-alert", size=16, color="#dc2626"),
+                                rx.text(PortalState.form_director_error, size="2", color="#dc2626"),
+                                spacing="2",
+                            ),
+                            padding="0.75rem",
+                            border_radius="0.5rem",
+                            background="#fee2e2",
+                            border_left="4px solid #dc2626",
+                            width="100%",
+                        ),
+                    ),
+                    rx.hstack(
+                        rx.button(
+                            "Cancel",
+                            on_click=PortalState.close_add_director_form,
+                            variant="outline",
+                            color_scheme="gray",
+                            size="3",
+                        ),
+                        rx.button(
+                            rx.hstack(rx.icon("save", size=16), rx.text("Save Director"), spacing="2"),
+                            on_click=PortalState.save_director,
+                            loading=PortalState.is_saving,
+                            disabled=PortalState.is_saving,
+                            background="linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                            color="white",
+                            size="3",
+                        ),
+                        spacing="3",
+                        justify="end",
+                        width="100%",
+                        padding_top="0.5rem",
+                    ),
+                    spacing="4",
+                    width="100%",
+                ),
+                background="white",
+                border_radius="0.75rem",
+                padding="2rem",
+                max_width="500px",
+                width="90%",
+                box_shadow="0 20px 60px rgba(0,0,0,0.3)",
+            ),
+            position="fixed",
+            top="0",
+            left="0",
+            width="100vw",
+            height="100vh",
+            background="rgba(0,0,0,0.5)",
+            z_index="1000",
+            display="flex",
+            align_items="center",
+            justify_content="center",
+        ),
+    )
+
+
+def edit_director_dialog() -> rx.Component:
+    return rx.cond(
+        PortalState.show_edit_director_form,
+        rx.box(
+            rx.box(
+                rx.vstack(
+                    rx.hstack(
+                        rx.icon("pencil", size=22, color="#667eea"),
+                        rx.heading("Edit Director", size="5", color="#1a1a1a", weight="bold"),
+                        rx.spacer(),
+                        rx.button(
+                            rx.icon("x", size=18),
+                            on_click=PortalState.close_edit_director_form,
+                            variant="ghost",
+                            size="1",
+                        ),
+                        width="100%",
+                        align_items="center",
+                    ),
+                    rx.divider(),
+                    _form_input("DIN (Director Identification Number)", "e.g. 00123456", PortalState.edit_form_din, PortalState.handle_edit_form_din_change),
+                    _form_input("Full Name", "Enter director's full name", PortalState.edit_form_director_name, PortalState.handle_edit_form_director_name_change),
+                    _form_input("Email ID", "e.g. director@example.com", PortalState.edit_form_director_email, PortalState.handle_edit_form_director_email_change, "email"),
+                    _form_input("Phone Number", "e.g. +91 98765 43210", PortalState.edit_form_director_phone, PortalState.handle_edit_form_director_phone_change),
+                    rx.cond(
+                        PortalState.edit_form_director_error != "",
+                        rx.box(
+                            rx.hstack(
+                                rx.icon("circle-alert", size=16, color="#dc2626"),
+                                rx.text(PortalState.edit_form_director_error, size="2", color="#dc2626"),
+                                spacing="2",
+                            ),
+                            padding="0.75rem",
+                            border_radius="0.5rem",
+                            background="#fee2e2",
+                            border_left="4px solid #dc2626",
+                            width="100%",
+                        ),
+                    ),
+                    rx.hstack(
+                        rx.button(
+                            "Cancel",
+                            on_click=PortalState.close_edit_director_form,
+                            variant="outline",
+                            color_scheme="gray",
+                            size="3",
+                        ),
+                        rx.button(
+                            rx.hstack(rx.icon("save", size=16), rx.text("Save Changes"), spacing="2"),
+                            on_click=PortalState.save_edit_director,
+                            background="linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                            color="white",
+                            size="3",
+                        ),
+                        spacing="3",
+                        justify="end",
+                        width="100%",
+                        padding_top="0.5rem",
+                    ),
+                    spacing="4",
+                    width="100%",
+                ),
+                background="white",
+                border_radius="0.75rem",
+                padding="2rem",
+                max_width="500px",
+                width="90%",
+                box_shadow="0 20px 60px rgba(0,0,0,0.3)",
+            ),
+            position="fixed",
+            top="0",
+            left="0",
+            width="100vw",
+            height="100vh",
+            background="rgba(0,0,0,0.5)",
+            z_index="1000",
+            display="flex",
+            align_items="center",
+            justify_content="center",
+        ),
+    )
+
+
+def directors_table() -> rx.Component:
+    return rx.table.root(
+        rx.table.header(
+            rx.table.row(
+                rx.table.column_header_cell("DIN", font_weight="700", color="white", font_size="0.95rem"),
+                rx.table.column_header_cell("Name", font_weight="700", color="white", font_size="0.95rem"),
+                rx.table.column_header_cell("Email", font_weight="700", color="white", font_size="0.95rem"),
+                rx.table.column_header_cell("Phone", font_weight="700", color="white", font_size="0.95rem"),
+                rx.table.column_header_cell("Status", font_weight="700", color="white", font_size="0.95rem"),
+                rx.table.column_header_cell("Actions", font_weight="700", color="white", font_size="0.95rem"),
+            ),
+            background="linear-gradient(90deg, #667eea 0%, #764ba2 100%)",
+            padding="1rem",
+        ),
+        rx.table.body(
+            rx.foreach(
+                PortalState.directors,
+                lambda item: rx.table.row(
+                    rx.table.cell(rx.text(item["din"], font_weight="600", color="#1a1a1a", size="3")),
+                    rx.table.cell(rx.text(item["name"], font_weight="500", color="#333", size="3")),
+                    rx.table.cell(
+                        rx.cond(
+                            item["email"] != "",
+                            rx.link(item["email"], href=f"mailto:{item['email']}", size="2", color="#667eea"),
+                            rx.text("-", color="#aaa", size="2"),
+                        )
+                    ),
+                    rx.table.cell(
+                        rx.cond(
+                            item["phone"] != "",
+                            rx.text(item["phone"], size="2", color="#333"),
+                            rx.text("-", color="#aaa", size="2"),
+                        )
+                    ),
+                    rx.table.cell(rx.badge(item["status"], variant="outline", color_scheme="green")),
+                    rx.table.cell(
+                        rx.cond(
+                            (PortalState.role == "ADMIN") | (PortalState.role == "EDITOR"),
+                            rx.hstack(
+                                rx.button(
+                                    rx.icon("pencil", size=14),
+                                    on_click=PortalState.open_edit_director_form(item["id"]),
+                                    color_scheme="blue",
+                                    variant="ghost",
+                                    size="1",
+                                ),
+                                rx.dialog.root(
+                                    rx.dialog.trigger(
+                                        rx.button(
+                                            rx.icon("trash-2", size=14),
+                                            color_scheme="red",
+                                            variant="ghost",
+                                            size="1",
+                                        ),
+                                    ),
+                                    rx.dialog.content(
+                                        rx.vstack(
+                                            rx.hstack(
+                                                rx.icon("triangle-alert", size=22, color="#dc2626"),
+                                                rx.dialog.title("Delete Director", size="5", weight="bold", color="#1a1a1a"),
+                                                spacing="2",
+                                                align_items="center",
+                                            ),
+                                            rx.divider(),
+                                            rx.dialog.description(
+                                                rx.vstack(
+                                                    rx.text(
+                                                        "Permanently delete this director? This cannot be undone.",
+                                                        size="3",
+                                                        color="#333",
+                                                    ),
+                                                    rx.box(
+                                                        rx.hstack(
+                                                            rx.text("DIN:", size="2", weight="bold", color="#555"),
+                                                            rx.text(item["din"], size="2", color="#1a1a1a"),
+                                                            spacing="2",
+                                                        ),
+                                                        rx.hstack(
+                                                            rx.text("Name:", size="2", weight="bold", color="#555"),
+                                                            rx.text(item["name"], size="2", color="#1a1a1a"),
+                                                            spacing="2",
+                                                        ),
+                                                        padding="0.75rem",
+                                                        background="#f5f5f5",
+                                                        border_radius="0.5rem",
+                                                        border_left="3px solid #dc2626",
+                                                        width="100%",
+                                                    ),
+                                                    spacing="3",
+                                                    width="100%",
+                                                ),
+                                            ),
+                                            rx.hstack(
+                                                rx.dialog.close(
+                                                    rx.button("Cancel", variant="outline", color_scheme="gray", size="3"),
+                                                ),
+                                                rx.dialog.close(
+                                                    rx.button(
+                                                        rx.hstack(rx.icon("trash-2", size=16), rx.text("Delete"), spacing="2"),
+                                                        on_click=PortalState.confirm_delete_director(item["id"]),
+                                                        color_scheme="red",
+                                                        size="3",
+                                                    ),
+                                                ),
+                                                spacing="3",
+                                                justify="end",
+                                                width="100%",
+                                                padding_top="0.5rem",
+                                            ),
+                                            spacing="4",
+                                            width="100%",
+                                        ),
+                                        max_width="420px",
+                                        background="white",
+                                    ),
+                                ),
+                                spacing="1",
+                            ),
+                        )
+                    ),
+                    _hover={"background": "rgba(102,126,234,0.04)"},
+                    border_bottom="1px solid #f0f0f0",
+                    padding="1rem",
+                ),
+            )
+        ),
+        width="100%",
+        size="3",
+    )
+
+
+def directors_section() -> rx.Component:
+    return rx.vstack(
+        rx.card(
+            rx.vstack(
+                rx.hstack(
+                    rx.icon("user-round", size=22, color="#667eea"),
+                    rx.vstack(
+                        rx.heading("Director Registry", size="5", color="#1a1a1a"),
+                        rx.text(f"{PortalState.directors.length()} directors", size="1", color="#999"),
+                        spacing="1",
+                    ),
+                    rx.spacer(),
+                    rx.cond(
+                        (PortalState.role == "ADMIN") | (PortalState.role == "EDITOR"),
+                        rx.button(
+                            rx.hstack(rx.icon("user-round-plus", size=16), rx.text("Add Director"), spacing="2"),
+                            on_click=PortalState.open_add_director_form,
+                            background="linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                            color="white",
+                            size="2",
+                        ),
+                    ),
+                    width="100%",
+                    align_items="center",
+                ),
+                rx.hstack(
+                    rx.el.input(
+                        placeholder="Search by DIN or director name…",
+                        value=PortalState.directors_search_query,
+                        on_change=PortalState.handle_directors_search,
+                        style={
+                            "flex": "1",
+                            "padding": "0.6rem 0.875rem",
+                            "border_radius": "0.5rem",
+                            "border": "1.5px solid #d0d0d0",
+                            "background_color": "white",
+                            "font_size": "0.9rem",
+                            "color": "#1a1a1a",
+                            "outline": "none",
+                            "box_sizing": "border-box",
+                        },
+                    ),
+                    width="100%",
+                    align_items="center",
+                ),
+                directors_table(),
+                spacing="4",
+                width="100%",
+            ),
+            width="100%",
+            padding="2rem",
+            background="white",
+            border_radius="0.75rem",
+            box_shadow="0 4px 16px rgba(0,0,0,0.08)",
+        ),
+        spacing="5",
+        padding="2rem",
+        width="100%",
+    )
+
+
+def manage_company_directors_dialog() -> rx.Component:
+    return rx.cond(
+        PortalState.show_manage_directors,
+        rx.box(
+            rx.box(
+                rx.vstack(
+                    rx.hstack(
+                        rx.icon("users", size=22, color="#667eea"),
+                        rx.vstack(
+                            rx.heading("Manage Directors", size="5", color="#1a1a1a", weight="bold"),
+                            rx.text(PortalState.managing_company_name, size="2", color="#667eea", weight="medium"),
+                            spacing="0",
+                        ),
+                        rx.spacer(),
+                        rx.button(
+                            rx.icon("x", size=18),
+                            on_click=PortalState.close_manage_directors,
+                            variant="ghost",
+                            size="1",
+                        ),
+                        width="100%",
+                        align_items="center",
+                    ),
+                    rx.divider(),
+                    # Current directors list
+                    rx.vstack(
+                        rx.text("Associated Directors", size="3", weight="bold", color="#1a1a1a"),
+                        rx.cond(
+                            PortalState.company_directors.length() == 0,
+                            rx.text("No directors associated yet.", size="2", color="#aaa"),
+                            rx.table.root(
+                                rx.table.header(
+                                    rx.table.row(
+                                        rx.table.column_header_cell("DIN", font_weight="700", color="white", font_size="0.85rem"),
+                                        rx.table.column_header_cell("Name", font_weight="700", color="white", font_size="0.85rem"),
+                                        rx.table.column_header_cell("Share %", font_weight="700", color="white", font_size="0.85rem"),
+                                        rx.table.column_header_cell("", font_weight="700", color="white"),
+                                    ),
+                                    background="linear-gradient(90deg, #667eea 0%, #764ba2 100%)",
+                                ),
+                                rx.table.body(
+                                    rx.foreach(
+                                        PortalState.company_directors,
+                                        lambda d: rx.table.row(
+                                            rx.table.cell(rx.text(d["din"], size="2", font_weight="600", color="#1a1a1a")),
+                                            rx.table.cell(rx.text(d["name"], size="2", color="#1a1a1a")),
+                                            rx.table.cell(
+                                                rx.cond(
+                                                    d["share_percent"] != "",
+                                                    rx.text(d["share_percent"], "%", size="2", color="#1a1a1a"),
+                                                    rx.text("-", size="2", color="#aaa"),
+                                                )
+                                            ),
+                                            rx.table.cell(
+                                                rx.cond(
+                                                    (PortalState.role == "ADMIN") | (PortalState.role == "EDITOR"),
+                                                    rx.cond(
+                                                        PortalState.confirm_remove_assoc_id == d["assoc_id"],
+                                                        rx.hstack(
+                                                            rx.text("Remove?", size="1", color="#dc2626", weight="bold"),
+                                                            rx.button(
+                                                                "Yes",
+                                                                on_click=PortalState.remove_director_from_company(d["assoc_id"]),
+                                                                color_scheme="red",
+                                                                size="1",
+                                                            ),
+                                                            rx.button(
+                                                                "No",
+                                                                on_click=PortalState.cancel_remove_director,
+                                                                variant="outline",
+                                                                size="1",
+                                                            ),
+                                                            spacing="1",
+                                                            align_items="center",
+                                                        ),
+                                                        rx.button(
+                                                            rx.icon("x", size=12),
+                                                            on_click=PortalState.prompt_remove_director(d["assoc_id"]),
+                                                            color_scheme="red",
+                                                            variant="ghost",
+                                                            size="1",
+                                                        ),
+                                                    ),
+                                                )
+                                            ),
+                                            border_bottom="1px solid #f0f0f0",
+                                        ),
+                                    )
+                                ),
+                                width="100%",
+                                size="2",
+                            ),
+                        ),
+                        spacing="2",
+                        width="100%",
+                    ),
+                    # Add director section (ADMIN/EDITOR only)
+                    rx.cond(
+                        (PortalState.role == "ADMIN") | (PortalState.role == "EDITOR"),
+                        rx.vstack(
+                            rx.divider(),
+                            rx.text("Add Director to Company", size="2", weight="bold", color="#333"),
+                            rx.vstack(
+                                rx.el.input(
+                                    placeholder="Search director by DIN or name…",
+                                    value=PortalState.assoc_search_query,
+                                    on_change=PortalState.handle_assoc_search,
+                                    type="text",
+                                    style={
+                                        "width": "100%",
+                                        "padding": "0.625rem 0.875rem",
+                                        "border_radius": "0.5rem",
+                                        "border": "2px solid #d0d0d0",
+                                        "background_color": "white",
+                                        "font_size": "0.95rem",
+                                        "color": "black",
+                                        "outline": "none",
+                                        "box_sizing": "border-box",
+                                    },
+                                ),
+                                rx.cond(
+                                    PortalState.assoc_search_results.length() > 0,
+                                    rx.box(
+                                        rx.foreach(
+                                            PortalState.assoc_search_results,
+                                            lambda r: rx.box(
+                                                rx.hstack(
+                                                    rx.text(r["din"], size="2", font_weight="600", color="#667eea"),
+                                                    rx.text(r["name"], size="2", color="#333"),
+                                                    spacing="2",
+                                                ),
+                                                padding="0.5rem 0.75rem",
+                                                cursor="pointer",
+                                                border_bottom="1px solid #f0f0f0",
+                                                _hover={"background": "#f0f4ff"},
+                                                on_click=PortalState.select_director_for_assoc(r["id"]),
+                                            ),
+                                        ),
+                                        border="1.5px solid #d0d0d0",
+                                        border_radius="0.5rem",
+                                        background="white",
+                                        width="100%",
+                                        max_height="180px",
+                                        overflow_y="auto",
+                                    ),
+                                ),
+                                rx.cond(
+                                    PortalState.assoc_selected_director_name != "",
+                                    rx.box(
+                                        rx.hstack(
+                                            rx.icon("circle-check", size=16, color="#16a34a"),
+                                            rx.text(PortalState.assoc_selected_director_name, size="2", color="#166534"),
+                                            spacing="2",
+                                        ),
+                                        padding="0.5rem 0.75rem",
+                                        background="#dcfce7",
+                                        border_radius="0.5rem",
+                                        border_left="3px solid #16a34a",
+                                        width="100%",
+                                    ),
+                                ),
+                                spacing="2",
+                                width="100%",
+                            ),
+                            rx.hstack(
+                                rx.vstack(
+                                    rx.text("Share %", size="2", weight="bold", color="#333"),
+                                    rx.el.input(
+                                        placeholder="e.g. 25.5",
+                                        value=PortalState.assoc_share_percent,
+                                        on_change=PortalState.handle_assoc_share_change,
+                                        type="number",
+                                        min="0",
+                                        max="100",
+                                        step="0.01",
+                                        style={
+                                            "width": "100%",
+                                            "padding": "0.625rem 0.875rem",
+                                            "border_radius": "0.5rem",
+                                            "border": "2px solid #d0d0d0",
+                                            "background_color": "white",
+                                            "font_size": "0.95rem",
+                                            "color": "black",
+                                            "outline": "none",
+                                            "box_sizing": "border-box",
+                                        },
+                                    ),
+                                    spacing="1",
+                                    width="140px",
+                                ),
+                                rx.spacer(),
+                                rx.button(
+                                    rx.hstack(rx.icon("user-round-plus", size=16), rx.text("Add Director"), spacing="2"),
+                                    on_click=PortalState.add_director_to_company,
+                                    loading=PortalState.is_saving,
+                                    disabled=PortalState.is_saving,
+                                    background="linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                                    color="white",
+                                    size="3",
+                                    align_self="flex-end",
+                                ),
+                                width="100%",
+                                align_items="flex-end",
+                            ),
+                            rx.cond(
+                                PortalState.assoc_error != "",
+                                rx.box(
+                                    rx.hstack(
+                                        rx.icon("circle-alert", size=16, color="#dc2626"),
+                                        rx.text(PortalState.assoc_error, size="2", color="#dc2626"),
+                                        spacing="2",
+                                    ),
+                                    padding="0.75rem",
+                                    border_radius="0.5rem",
+                                    background="#fee2e2",
+                                    border_left="4px solid #dc2626",
+                                    width="100%",
+                                ),
+                            ),
+                            spacing="3",
+                            width="100%",
+                        ),
+                    ),
+                    rx.hstack(
+                        rx.spacer(),
+                        rx.button(
+                            "Close",
+                            on_click=PortalState.close_manage_directors,
+                            variant="outline",
+                            color_scheme="gray",
+                            size="3",
+                        ),
+                        width="100%",
+                        padding_top="0.5rem",
+                    ),
+                    spacing="4",
+                    width="100%",
+                ),
+                background="white",
+                border_radius="0.75rem",
+                padding="2rem",
+                max_width="640px",
+                width="90%",
+                max_height="90vh",
+                overflow_y="auto",
                 box_shadow="0 20px 60px rgba(0,0,0,0.3)",
             ),
             position="fixed",
@@ -2035,7 +3065,7 @@ def dashboard_page() -> rx.Component:
                 width="100%",
                 box_shadow="0 4px 12px rgba(0,0,0,0.1)",
             ),
-            # Tab navigation bar (Admin tab visible only for ADMIN role)
+            # Tab navigation bar
             rx.box(
                 rx.hstack(
                     rx.button(
@@ -2045,6 +3075,16 @@ def dashboard_page() -> rx.Component:
                         size="2",
                         color=rx.cond(PortalState.active_tab == "companies", "white", "rgba(255,255,255,0.65)"),
                         background=rx.cond(PortalState.active_tab == "companies", "rgba(255,255,255,0.22)", "transparent"),
+                        border_radius="0.5rem",
+                        _hover={"background": "rgba(255,255,255,0.15)", "color": "white"},
+                    ),
+                    rx.button(
+                        rx.hstack(rx.icon("user-round", size=15), rx.text("Directors"), spacing="2"),
+                        on_click=PortalState.switch_tab("directors"),
+                        variant="ghost",
+                        size="2",
+                        color=rx.cond(PortalState.active_tab == "directors", "white", "rgba(255,255,255,0.65)"),
+                        background=rx.cond(PortalState.active_tab == "directors", "rgba(255,255,255,0.22)", "transparent"),
                         border_radius="0.5rem",
                         _hover={"background": "rgba(255,255,255,0.15)", "color": "white"},
                     ),
@@ -2096,7 +3136,11 @@ def dashboard_page() -> rx.Component:
             rx.cond(
                 PortalState.active_tab == "companies",
                 companies_section(),
-                admin_panel(),
+                rx.cond(
+                    PortalState.active_tab == "directors",
+                    directors_section(),
+                    admin_panel(),
+                ),
             ),
             spacing="0",
             width="100%",
@@ -2104,6 +3148,9 @@ def dashboard_page() -> rx.Component:
         ),
         add_company_dialog(),
         edit_company_dialog(),
+        add_director_dialog(),
+        edit_director_dialog(),
+        manage_company_directors_dialog(),
         add_user_dialog(),
         edit_user_dialog(),
         background="#f5f7fa",
@@ -2136,6 +3183,7 @@ def loading_overlay() -> rx.Component:
 
 def index() -> rx.Component:
     return rx.box(
+        rx.el.style("input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; } input[type=number] { -moz-appearance: textfield; }"),
         rx.cond(PortalState.is_authenticated, dashboard_page(), login_page()),
         rx.cond(PortalState.is_saving, loading_overlay()),
     )

@@ -1,7 +1,8 @@
-import { PrismaClient, Role } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
+const Role = { ADMIN: "ADMIN", EDITOR: "EDITOR", VIEWER: "VIEWER" } as const;
 
 async function main() {
   const adminPasswordHash = await bcrypt.hash("admin123", 10);

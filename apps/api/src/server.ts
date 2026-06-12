@@ -1,11 +1,12 @@
 import express from "express";
 import cors from "cors";
 import bcrypt from "bcryptjs";
-import { Role } from "@prisma/client";
 import { z } from "zod";
 import { config } from "./config.js";
 import { prisma } from "./prisma.js";
 import { authenticate, authorize, signToken } from "./auth.js";
+
+const Role = { ADMIN: "ADMIN", EDITOR: "EDITOR", VIEWER: "VIEWER" } as const;
 
 const app = express();
 
@@ -168,6 +169,102 @@ app.put("/companies/:id", authenticate, authorize([Role.ADMIN, Role.EDITOR]), as
   });
 
   res.json(company);
+});
+
+// ─── Directors ──────────────────────────────────────────────────────────────
+
+const directorSchema = z.object({
+  din: z.string().min(3).max(20),
+  name: z.string().min(2).max(120),
+  email: z.string().email().optional().nullable(),
+  phone: z.string().max(20).optional().nullable(),
+  status: z.string().min(2).max(50).default("active"),
+  notes: z.string().max(2000).optional().nullable(),
+});
+
+const directorUpdateSchema = directorSchema.partial().extend({
+  din: z.string().min(3).max(20).optional(),
+});
+
+app.get("/directors", authenticate, authorize([Role.ADMIN, Role.EDITOR, Role.VIEWER]), async (req, res) => {
+  const query = typeof req.query.query === "string" ? req.query.query.trim() : "";
+  const page = Math.max(Number(req.query.page ?? 1) || 1, 1);
+  const pageSize = Math.min(Math.max(Number(req.query.pageSize ?? 10) || 10, 1), 100);
+
+  const where = query
+    ? {
+        OR: [
+          { din: { contains: query } },
+          { name: { contains: query } },
+        ],
+      }
+    : undefined;
+
+  const [items, total] = await Promise.all([
+    prisma.director.findMany({
+      where,
+      orderBy: { updatedAt: "desc" },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+    prisma.director.count({ where }),
+  ]);
+
+  res.json({ items, total, page, pageSize });
+});
+
+app.post("/directors", authenticate, authorize([Role.ADMIN, Role.EDITOR]), async (req, res) => {
+  const parsed = directorSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ message: "Invalid director data", errors: parsed.error.flatten() });
+    return;
+  }
+
+  const existingDin = await prisma.director.findUnique({ where: { din: parsed.data.din } });
+  if (existingDin) {
+    res.status(409).json({ message: "Director with this DIN already exists" });
+    return;
+  }
+
+  const director = await prisma.director.create({
+    data: {
+      ...parsed.data,
+      createdById: req.user!.id,
+      updatedById: req.user!.id,
+    },
+  });
+
+  res.status(201).json(director);
+});
+
+app.put("/directors/:id", authenticate, authorize([Role.ADMIN, Role.EDITOR]), async (req, res) => {
+  const parsed = directorUpdateSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ message: "Invalid director data", errors: parsed.error.flatten() });
+    return;
+  }
+
+  const id = req.params.id;
+  const existing = await prisma.director.findUnique({ where: { id } });
+  if (!existing) {
+    res.status(404).json({ message: "Director not found" });
+    return;
+  }
+
+  if (parsed.data.din && parsed.data.din !== existing.din) {
+    const duplicate = await prisma.director.findUnique({ where: { din: parsed.data.din } });
+    if (duplicate) {
+      res.status(409).json({ message: "Another director already uses this DIN" });
+      return;
+    }
+  }
+
+  const director = await prisma.director.update({
+    where: { id },
+    data: { ...parsed.data, updatedById: req.user!.id },
+  });
+
+  res.json(director);
 });
 
 app.listen(config.port, () => {

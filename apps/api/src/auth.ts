@@ -1,7 +1,8 @@
 import type { NextFunction, Request, Response } from "express";
 import jwt from "jsonwebtoken";
-import type { Role } from "@prisma/client";
 import { config } from "./config.js";
+
+export type Role = "ADMIN" | "EDITOR" | "VIEWER";
 
 export type AuthUser = {
   id: string;

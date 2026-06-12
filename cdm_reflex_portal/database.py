@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import bcrypt
-from sqlalchemy import DateTime, String, Text, create_engine, func, text
+from sqlalchemy import DateTime, Float, String, Text, UniqueConstraint, create_engine, func, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
@@ -44,6 +44,29 @@ class Company(Base):
     date_of_incorporation: Mapped[str | None] = mapped_column(String(20), nullable=True)
     email: Mapped[str | None] = mapped_column(String(254), nullable=True)
     address: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class Director(Base):
+    __tablename__ = "directors"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    din: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(140), nullable=False)
+    email: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    status: Mapped[str] = mapped_column(String(40), default="active", nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[str] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class CompanyDirector(Base):
+    __tablename__ = "company_directors"
+    __table_args__ = (UniqueConstraint("company_id", "director_id", name="uq_company_director"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    company_id: Mapped[int] = mapped_column(nullable=False)
+    director_id: Mapped[int] = mapped_column(nullable=False)
+    share_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
 def hash_password(value: str) -> str:
