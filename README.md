@@ -60,6 +60,31 @@ Web runs on port 5173, API runs on port 4000.
 
 ---
 
+## Features (Reflex portal)
+
+### Companies
+- Add, edit, search companies
+- Fields: Name, CIN, Class (Public/Private), Registered Address, Notes, Status
+- Role-based actions: ADMIN/EDITOR can add/edit, VIEWER is read-only
+
+### Directors Registry
+- Separate Directors tab with its own registry
+- Fields: DIN (unique), Name, Email, Phone, Status
+- Add, edit, search directors
+
+### Company–Director Associations
+- Link directors to companies via the **people icon** on any company row
+- Each association carries a **Share %** (mandatory, must be > 0)
+- Total share across all directors for a company cannot exceed 100%
+- A director cannot be added to the same company twice
+- Remove associations with inline confirmation prompt
+
+### User Management (ADMIN only)
+- Admin tab to create/manage users
+- Roles: ADMIN, EDITOR, VIEWER
+
+---
+
 ## Stack (Reflex portal)
 - Reflex (frontend + backend runtime)
 - SQLite + SQLAlchemy
