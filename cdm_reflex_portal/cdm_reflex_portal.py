@@ -542,8 +542,8 @@ class PortalState(rx.State):
             ]
 
     def confirm_delete(self, company_id: str):
-        if self.role not in ("ADMIN", "EDITOR"):
-            self.error_message = "You do not have permission to delete companies."
+        if self.role != "ADMIN":
+            self.error_message = "Only admins can delete companies."
             return
         try:
             cid = int(company_id)
@@ -1362,8 +1362,8 @@ class PortalState(rx.State):
         self.load_directors()
 
     def confirm_delete_director(self, director_id: str):
-        if self.role not in ("ADMIN", "EDITOR"):
-            self.error_message = "You do not have permission to delete directors."
+        if self.role != "ADMIN":
+            self.error_message = "Only admins can delete directors."
             return
         try:
             did = int(director_id)
@@ -2167,23 +2167,25 @@ def companies_table() -> rx.Component:
                             ),
                             rx.cond(
                                 (PortalState.role == "ADMIN") | (PortalState.role == "EDITOR"),
-                                rx.hstack(
+                                rx.button(
+                                    rx.icon("pencil", size=14),
+                                    on_click=PortalState.open_edit_company_form(item["id"]),
+                                    color_scheme="blue",
+                                    variant="ghost",
+                                    size="1",
+                                ),
+                            ),
+                            rx.cond(
+                                PortalState.role == "ADMIN",
+                                rx.dialog.root(
+                                rx.dialog.trigger(
                                     rx.button(
-                                        rx.icon("pencil", size=14),
-                                        on_click=PortalState.open_edit_company_form(item["id"]),
-                                        color_scheme="blue",
+                                        rx.icon("trash-2", size=14),
+                                        color_scheme="red",
                                         variant="ghost",
                                         size="1",
                                     ),
-                                    rx.dialog.root(
-                                    rx.dialog.trigger(
-                                        rx.button(
-                                            rx.icon("trash-2", size=14),
-                                            color_scheme="red",
-                                            variant="ghost",
-                                            size="1",
-                                        ),
-                                    ),
+                                ),
                                     rx.dialog.content(
                                         rx.vstack(
                                             rx.hstack(
@@ -2734,23 +2736,25 @@ def directors_table() -> rx.Component:
                     rx.table.cell(
                         rx.cond(
                             (PortalState.role == "ADMIN") | (PortalState.role == "EDITOR"),
-                            rx.hstack(
-                                rx.button(
-                                    rx.icon("pencil", size=14),
-                                    on_click=PortalState.open_edit_director_form(item["id"]),
-                                    color_scheme="blue",
-                                    variant="ghost",
-                                    size="1",
-                                ),
-                                rx.dialog.root(
-                                    rx.dialog.trigger(
-                                        rx.button(
-                                            rx.icon("trash-2", size=14),
-                                            color_scheme="red",
-                                            variant="ghost",
-                                            size="1",
-                                        ),
+                            rx.button(
+                                rx.icon("pencil", size=14),
+                                on_click=PortalState.open_edit_director_form(item["id"]),
+                                color_scheme="blue",
+                                variant="ghost",
+                                size="1",
+                            ),
+                        ),
+                        rx.cond(
+                            PortalState.role == "ADMIN",
+                            rx.dialog.root(
+                                rx.dialog.trigger(
+                                    rx.button(
+                                        rx.icon("trash-2", size=14),
+                                        color_scheme="red",
+                                        variant="ghost",
+                                        size="1",
                                     ),
+                                ),
                                     rx.dialog.content(
                                         rx.vstack(
                                             rx.hstack(
