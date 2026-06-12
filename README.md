@@ -34,8 +34,6 @@ docker compose -f docker-compose.yml -f docker-compose.testing.yml up --build
 
 **App URLs:** `http://localhost:3000` (frontend) · `http://localhost:8001` (backend)
 
-**Default login:** `admin` / `Admin@123`
-
 ---
 
 ## Node.js Apps (apps/) — quick start
