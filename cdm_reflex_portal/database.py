@@ -83,6 +83,11 @@ class CompanyDirector(Base):
     company_id: Mapped[int] = mapped_column(nullable=False)
     director_id: Mapped[int] = mapped_column(nullable=False)
     share_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    designation: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    category: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    original_appointment_date: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    current_designation_date: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    cessation_date: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
 
 def hash_password(value: str) -> str:
@@ -121,6 +126,18 @@ def init_db() -> None:
         ]
         for col_name, ddl in migrations:
             if col_name not in cols:
+                conn.execute(text(ddl))
+                conn.commit()
+        cd_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(company_directors)")).fetchall()]
+        cd_migrations = [
+            ("designation", "ALTER TABLE company_directors ADD COLUMN designation VARCHAR(60)"),
+            ("category", "ALTER TABLE company_directors ADD COLUMN category VARCHAR(60)"),
+            ("original_appointment_date", "ALTER TABLE company_directors ADD COLUMN original_appointment_date VARCHAR(20)"),
+            ("current_designation_date", "ALTER TABLE company_directors ADD COLUMN current_designation_date VARCHAR(20)"),
+            ("cessation_date", "ALTER TABLE company_directors ADD COLUMN cessation_date VARCHAR(20)"),
+        ]
+        for col_name, ddl in cd_migrations:
+            if col_name not in cd_cols:
                 conn.execute(text(ddl))
                 conn.commit()
     with SessionLocal() as session:

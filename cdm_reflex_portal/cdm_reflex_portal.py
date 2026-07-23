@@ -142,8 +142,14 @@ class PortalState(rx.State):
     assoc_selected_director_id: str = ""
     assoc_selected_director_name: str = ""
     assoc_share_percent: str = ""
+    assoc_designation: str = ""
+    assoc_category: str = ""
+    assoc_original_appointment_date: str = ""
+    assoc_current_designation_date: str = ""
+    assoc_cessation_date: str = ""
     assoc_error: str = ""
     confirm_remove_assoc_id: str = ""
+    assoc_editing_id: str = ""
 
     # ── User management (admin only) ──────────────────────────────────────────
     active_tab: str = "companies"
@@ -264,8 +270,14 @@ class PortalState(rx.State):
         self.assoc_selected_director_id = ""
         self.assoc_selected_director_name = ""
         self.assoc_share_percent = ""
+        self.assoc_designation = ""
+        self.assoc_category = ""
+        self.assoc_original_appointment_date = ""
+        self.assoc_current_designation_date = ""
+        self.assoc_cessation_date = ""
         self.assoc_error = ""
         self.confirm_remove_assoc_id = ""
+        self.assoc_editing_id = ""
 
     # ── Computed vars ─────────────────────────────────────────────────────────
 
@@ -1398,6 +1410,11 @@ class PortalState(rx.State):
                     "din": d.din,
                     "name": d.name,
                     "share_percent": str(cd.share_percent) if cd.share_percent is not None else "",
+                    "designation": cd.designation or "",
+                    "category": cd.category or "",
+                    "original_appointment_date": _format_date(cd.original_appointment_date),
+                    "current_designation_date": _format_date(cd.current_designation_date),
+                    "cessation_date": _format_date(cd.cessation_date),
                 }
                 for cd, d in rows
             ]
@@ -1448,38 +1465,95 @@ class PortalState(rx.State):
                 self.assoc_selected_director_name = f"{d.name}  (DIN: {d.din})"
                 self.assoc_search_query = d.name
 
-    def handle_assoc_share_change(self, value: str):
-        self.assoc_share_percent = value
+    def handle_assoc_share_change(self, value):  # noqa: override with untyped to avoid Reflex coercion
+        self.assoc_share_percent = str(value) if value is not None else ""
+
+    def handle_assoc_designation_change(self, value: str):
+        self.assoc_designation = value
+
+    def handle_assoc_category_change(self, value: str):
+        self.assoc_category = value
+
+    def handle_assoc_original_appointment_date_change(self, value: str):
+        m = _ISO_DATE_RE.match(value)
+        self.assoc_original_appointment_date = f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m else value
+
+    def handle_assoc_current_designation_date_change(self, value: str):
+        m = _ISO_DATE_RE.match(value)
+        self.assoc_current_designation_date = f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m else value
+
+    def handle_assoc_cessation_date_change(self, value: str):
+        m = _ISO_DATE_RE.match(value)
+        self.assoc_cessation_date = f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m else value
+
+    def _validate_assoc_form(self) -> tuple[float | None, str] | None:
+        """Shared validation for add/edit association forms.
+
+        Returns (share_val, designation) on success, or None (setting
+        self.assoc_error) on failure.
+        """
+        share_str = str(self.assoc_share_percent).strip()
+        if not share_str:
+            self.assoc_error = "Share percentage is required."
+            return None
+        try:
+            share_val = float(share_str)
+            if share_val <= 0 or share_val > 100:
+                self.assoc_error = "Share percentage must be greater than 0 and at most 100."
+                return None
+        except ValueError:
+            self.assoc_error = "Share percentage must be a number."
+            return None
+        if not self.assoc_designation.strip():
+            self.assoc_error = "Designation is required."
+            return None
+        for label, value in (
+            ("Original Date of Appointment", self.assoc_original_appointment_date),
+            ("Date of Appointment at Current Designation", self.assoc_current_designation_date),
+            ("Date of Cessation", self.assoc_cessation_date),
+        ):
+            if value.strip() and not _parse_doi(value.strip()):
+                self.assoc_error = f"{label}: invalid date. Use DD/MM/YYYY."
+                return None
+        return share_val
 
     def add_director_to_company(self):
         if self.role not in ("ADMIN", "EDITOR"):
             self.assoc_error = "You do not have permission."
             return
+        if self.assoc_editing_id:
+            return self.save_association_edit()
         if not self.assoc_selected_director_id:
             self.assoc_error = "Please select a director from the search results."
             return
-        share_str = str(self.assoc_share_percent).strip()
-        if not share_str:
-            self.assoc_error = "Share percentage is required."
-            return
-        try:
-            share_val = float(share_str)
-            if share_val <= 0 or share_val > 100:
-                self.assoc_error = "Share percentage must be greater than 0 and at most 100."
-                return
-        except ValueError:
-            self.assoc_error = "Share percentage must be a number."
+        share_val = self._validate_assoc_form()
+        if share_val is None:
             return
         self.assoc_error = ""
         cid = self.managing_company_id
         did = self.assoc_selected_director_id
+        designation = self.assoc_designation.strip()
+        category = self.assoc_category.strip()
+        original_appointment_date = self.assoc_original_appointment_date.strip()
+        current_designation_date = self.assoc_current_designation_date.strip()
+        cessation_date = self.assoc_cessation_date.strip()
         self.is_saving = True
-        return PortalState.commit_add_director_to_company(cid, did, share_str)
+        return PortalState.commit_add_director_to_company(
+            cid, did, str(share_val), designation, category,
+            original_appointment_date, current_designation_date, cessation_date,
+        )
 
-    def handle_assoc_share_change(self, value):  # noqa: override with untyped to avoid Reflex coercion
-        self.assoc_share_percent = str(value) if value is not None else ""
-
-    def commit_add_director_to_company(self, company_id: str, director_id: str, share_str: str):
+    def commit_add_director_to_company(
+        self,
+        company_id: str,
+        director_id: str,
+        share_str: str,
+        designation: str = "",
+        category: str = "",
+        original_appointment_date: str = "",
+        current_designation_date: str = "",
+        cessation_date: str = "",
+    ):
         try:
             cid = int(company_id)
             did = int(director_id)
@@ -1505,10 +1579,119 @@ class PortalState(rx.State):
                     self.assoc_error = f"Total share would exceed 100% (current total: {current_total:.2f}%)."
                     self.is_saving = False
                     return
-            session.add(CompanyDirector(company_id=cid, director_id=did, share_percent=share_val))
+            session.add(
+                CompanyDirector(
+                    company_id=cid,
+                    director_id=did,
+                    share_percent=share_val,
+                    designation=designation or None,
+                    category=category or None,
+                    original_appointment_date=original_appointment_date or None,
+                    current_designation_date=current_designation_date or None,
+                    cessation_date=cessation_date or None,
+                )
+            )
             session.commit()
         self.assoc_share_percent = ""
+        self.assoc_designation = ""
+        self.assoc_category = ""
+        self.assoc_original_appointment_date = ""
+        self.assoc_current_designation_date = ""
+        self.assoc_cessation_date = ""
         self.assoc_error = ""
+        self.is_saving = False
+        self._load_company_directors()
+
+    def start_edit_association(self, assoc_id: str):
+        for d in self.company_directors:
+            if d["assoc_id"] == assoc_id:
+                self.assoc_editing_id = assoc_id
+                self.assoc_selected_director_id = d["director_id"]
+                self.assoc_selected_director_name = f"{d['name']}  (DIN: {d['din']})"
+                self.assoc_search_query = ""
+                self.assoc_search_results = []
+                self.assoc_share_percent = d["share_percent"]
+                self.assoc_designation = d["designation"]
+                self.assoc_category = d["category"]
+                self.assoc_original_appointment_date = d["original_appointment_date"]
+                self.assoc_current_designation_date = d["current_designation_date"]
+                self.assoc_cessation_date = d["cessation_date"]
+                self.assoc_error = ""
+                break
+
+    def cancel_edit_association(self):
+        self.assoc_editing_id = ""
+        self.assoc_selected_director_id = ""
+        self.assoc_selected_director_name = ""
+        self.assoc_search_query = ""
+        self.assoc_search_results = []
+        self.assoc_share_percent = ""
+        self.assoc_designation = ""
+        self.assoc_category = ""
+        self.assoc_original_appointment_date = ""
+        self.assoc_current_designation_date = ""
+        self.assoc_cessation_date = ""
+        self.assoc_error = ""
+
+    def save_association_edit(self):
+        if self.role not in ("ADMIN", "EDITOR"):
+            self.assoc_error = "You do not have permission."
+            return
+        share_val = self._validate_assoc_form()
+        if share_val is None:
+            return
+        self.assoc_error = ""
+        aid = self.assoc_editing_id
+        designation = self.assoc_designation.strip()
+        category = self.assoc_category.strip()
+        original_appointment_date = self.assoc_original_appointment_date.strip()
+        current_designation_date = self.assoc_current_designation_date.strip()
+        cessation_date = self.assoc_cessation_date.strip()
+        self.is_saving = True
+        return PortalState.commit_edit_association(
+            aid, str(share_val), designation, category,
+            original_appointment_date, current_designation_date, cessation_date,
+        )
+
+    def commit_edit_association(
+        self,
+        assoc_id: str,
+        share_str: str,
+        designation: str = "",
+        category: str = "",
+        original_appointment_date: str = "",
+        current_designation_date: str = "",
+        cessation_date: str = "",
+    ):
+        try:
+            aid = int(assoc_id)
+        except (ValueError, TypeError):
+            self.is_saving = False
+            return
+        share_val = float(share_str) if share_str else None
+        with SessionLocal() as session:
+            assoc = session.query(CompanyDirector).filter(CompanyDirector.id == aid).first()
+            if not assoc:
+                self.is_saving = False
+                return
+            if share_val is not None:
+                current_total = session.query(func.sum(CompanyDirector.share_percent)).filter(
+                    CompanyDirector.company_id == assoc.company_id,
+                    CompanyDirector.share_percent.isnot(None),
+                    CompanyDirector.id != aid,
+                ).scalar() or 0.0
+                if current_total + share_val > 100:
+                    self.assoc_error = f"Total share would exceed 100% (current total: {current_total:.2f}%)."
+                    self.is_saving = False
+                    return
+            assoc.share_percent = share_val
+            assoc.designation = designation or None
+            assoc.category = category or None
+            assoc.original_appointment_date = original_appointment_date or None
+            assoc.current_designation_date = current_designation_date or None
+            assoc.cessation_date = cessation_date or None
+            session.commit()
+        self.cancel_edit_association()
         self.is_saving = False
         self._load_company_directors()
 
@@ -1523,6 +1706,8 @@ class PortalState(rx.State):
             self.assoc_error = "You do not have permission."
             return
         self.confirm_remove_assoc_id = ""
+        if self.assoc_editing_id == assoc_id:
+            self.cancel_edit_association()
         try:
             aid = int(assoc_id)
         except (ValueError, TypeError):
@@ -2918,140 +3103,212 @@ def manage_company_directors_dialog() -> rx.Component:
                         rx.cond(
                             PortalState.company_directors.length() == 0,
                             rx.text("No directors associated yet.", size="2", color="#aaa"),
-                            rx.table.root(
-                                rx.table.header(
-                                    rx.table.row(
-                                        rx.table.column_header_cell("DIN", font_weight="700", color="white", font_size="0.85rem"),
-                                        rx.table.column_header_cell("Name", font_weight="700", color="white", font_size="0.85rem"),
-                                        rx.table.column_header_cell("Share %", font_weight="700", color="white", font_size="0.85rem"),
-                                        rx.table.column_header_cell("", font_weight="700", color="white"),
-                                    ),
-                                    background="linear-gradient(90deg, #667eea 0%, #764ba2 100%)",
-                                ),
-                                rx.table.body(
-                                    rx.foreach(
-                                        PortalState.company_directors,
-                                        lambda d: rx.table.row(
-                                            rx.table.cell(rx.text(d["din"], size="2", font_weight="600", color="#1a1a1a")),
-                                            rx.table.cell(rx.text(d["name"], size="2", color="#1a1a1a")),
-                                            rx.table.cell(
-                                                rx.cond(
-                                                    d["share_percent"] != "",
-                                                    rx.text(d["share_percent"], "%", size="2", color="#1a1a1a"),
-                                                    rx.text("-", size="2", color="#aaa"),
-                                                )
-                                            ),
-                                            rx.table.cell(
-                                                rx.cond(
-                                                    (PortalState.role == "ADMIN") | (PortalState.role == "EDITOR"),
-                                                    rx.cond(
-                                                        PortalState.confirm_remove_assoc_id == d["assoc_id"],
-                                                        rx.hstack(
-                                                            rx.text("Remove?", size="1", color="#dc2626", weight="bold"),
-                                                            rx.button(
-                                                                "Yes",
-                                                                on_click=PortalState.remove_director_from_company(d["assoc_id"]),
-                                                                color_scheme="red",
-                                                                size="1",
-                                                            ),
-                                                            rx.button(
-                                                                "No",
-                                                                on_click=PortalState.cancel_remove_director,
-                                                                variant="outline",
-                                                                size="1",
-                                                            ),
-                                                            spacing="1",
-                                                            align_items="center",
-                                                        ),
-                                                        rx.button(
-                                                            rx.icon("x", size=12),
-                                                            on_click=PortalState.prompt_remove_director(d["assoc_id"]),
-                                                            color_scheme="red",
-                                                            variant="ghost",
-                                                            size="1",
-                                                        ),
-                                                    ),
-                                                )
-                                            ),
-                                            border_bottom="1px solid #f0f0f0",
+                            rx.box(
+                                rx.table.root(
+                                    rx.table.header(
+                                        rx.table.row(
+                                            rx.table.column_header_cell("DIN", font_weight="700", color="white", font_size="0.85rem"),
+                                            rx.table.column_header_cell("Name", font_weight="700", color="white", font_size="0.85rem"),
+                                            rx.table.column_header_cell("Designation", font_weight="700", color="white", font_size="0.85rem"),
+                                            rx.table.column_header_cell("Category", font_weight="700", color="white", font_size="0.85rem"),
+                                            rx.table.column_header_cell("Share %", font_weight="700", color="white", font_size="0.85rem"),
+                                            rx.table.column_header_cell("Orig. Appt.", font_weight="700", color="white", font_size="0.85rem"),
+                                            rx.table.column_header_cell("Current Desg. Date", font_weight="700", color="white", font_size="0.85rem"),
+                                            rx.table.column_header_cell("Cessation", font_weight="700", color="white", font_size="0.85rem"),
+                                            rx.table.column_header_cell("", font_weight="700", color="white"),
                                         ),
-                                    )
+                                        background="linear-gradient(90deg, #667eea 0%, #764ba2 100%)",
+                                    ),
+                                    rx.table.body(
+                                        rx.foreach(
+                                            PortalState.company_directors,
+                                            lambda d: rx.table.row(
+                                                rx.table.cell(rx.text(d["din"], size="2", font_weight="600", color="#1a1a1a", white_space="nowrap")),
+                                                rx.table.cell(rx.text(d["name"], size="2", color="#1a1a1a", white_space="nowrap")),
+                                                rx.table.cell(
+                                                    rx.cond(
+                                                        d["designation"] != "",
+                                                        rx.text(d["designation"], size="2", color="#1a1a1a", white_space="nowrap"),
+                                                        rx.text("-", size="2", color="#aaa"),
+                                                    )
+                                                ),
+                                                rx.table.cell(
+                                                    rx.cond(
+                                                        d["category"] != "",
+                                                        rx.text(d["category"], size="2", color="#1a1a1a", white_space="nowrap"),
+                                                        rx.text("-", size="2", color="#aaa"),
+                                                    )
+                                                ),
+                                                rx.table.cell(
+                                                    rx.cond(
+                                                        d["share_percent"] != "",
+                                                        rx.text(d["share_percent"], "%", size="2", color="#1a1a1a"),
+                                                        rx.text("-", size="2", color="#aaa"),
+                                                    )
+                                                ),
+                                                rx.table.cell(
+                                                    rx.cond(
+                                                        d["original_appointment_date"] != "",
+                                                        rx.text(d["original_appointment_date"], size="2", color="#1a1a1a", white_space="nowrap"),
+                                                        rx.text("-", size="2", color="#aaa"),
+                                                    )
+                                                ),
+                                                rx.table.cell(
+                                                    rx.cond(
+                                                        d["current_designation_date"] != "",
+                                                        rx.text(d["current_designation_date"], size="2", color="#1a1a1a", white_space="nowrap"),
+                                                        rx.text("-", size="2", color="#aaa"),
+                                                    )
+                                                ),
+                                                rx.table.cell(
+                                                    rx.cond(
+                                                        d["cessation_date"] != "",
+                                                        rx.text(d["cessation_date"], size="2", color="#1a1a1a", white_space="nowrap"),
+                                                        rx.text("-", size="2", color="#aaa"),
+                                                    )
+                                                ),
+                                                rx.table.cell(
+                                                    rx.cond(
+                                                        (PortalState.role == "ADMIN") | (PortalState.role == "EDITOR"),
+                                                        rx.cond(
+                                                            PortalState.confirm_remove_assoc_id == d["assoc_id"],
+                                                            rx.hstack(
+                                                                rx.text("Remove?", size="1", color="#dc2626", weight="bold"),
+                                                                rx.button(
+                                                                    "Yes",
+                                                                    on_click=PortalState.remove_director_from_company(d["assoc_id"]),
+                                                                    color_scheme="red",
+                                                                    size="1",
+                                                                ),
+                                                                rx.button(
+                                                                    "No",
+                                                                    on_click=PortalState.cancel_remove_director,
+                                                                    variant="outline",
+                                                                    size="1",
+                                                                ),
+                                                                spacing="1",
+                                                                align_items="center",
+                                                            ),
+                                                            rx.hstack(
+                                                                rx.button(
+                                                                    rx.icon("pencil", size=12),
+                                                                    on_click=PortalState.start_edit_association(d["assoc_id"]),
+                                                                    color_scheme="blue",
+                                                                    variant="ghost",
+                                                                    size="1",
+                                                                ),
+                                                                rx.button(
+                                                                    rx.icon("x", size=12),
+                                                                    on_click=PortalState.prompt_remove_director(d["assoc_id"]),
+                                                                    color_scheme="red",
+                                                                    variant="ghost",
+                                                                    size="1",
+                                                                ),
+                                                                spacing="1",
+                                                            ),
+                                                        ),
+                                                    )
+                                                ),
+                                                border_bottom="1px solid #f0f0f0",
+                                            ),
+                                        )
+                                    ),
+                                    width="100%",
+                                    size="2",
                                 ),
                                 width="100%",
-                                size="2",
+                                overflow_x="auto",
                             ),
                         ),
                         spacing="2",
                         width="100%",
                     ),
-                    # Add director section (ADMIN/EDITOR only)
+                    # Add/edit director section (ADMIN/EDITOR only)
                     rx.cond(
                         (PortalState.role == "ADMIN") | (PortalState.role == "EDITOR"),
                         rx.vstack(
                             rx.divider(),
-                            rx.text("Add Director to Company", size="2", weight="bold", color="#333"),
-                            rx.vstack(
-                                rx.el.input(
-                                    placeholder="Search director by DIN or name…",
-                                    value=PortalState.assoc_search_query,
-                                    on_change=PortalState.handle_assoc_search,
-                                    type="text",
-                                    style={
-                                        "width": "100%",
-                                        "padding": "0.625rem 0.875rem",
-                                        "border_radius": "0.5rem",
-                                        "border": "2px solid #d0d0d0",
-                                        "background_color": "white",
-                                        "font_size": "0.95rem",
-                                        "color": "black",
-                                        "outline": "none",
-                                        "box_sizing": "border-box",
-                                    },
-                                ),
-                                rx.cond(
-                                    PortalState.assoc_search_results.length() > 0,
-                                    rx.box(
-                                        rx.foreach(
-                                            PortalState.assoc_search_results,
-                                            lambda r: rx.box(
-                                                rx.hstack(
-                                                    rx.text(r["din"], size="2", font_weight="600", color="#667eea"),
-                                                    rx.text(r["name"], size="2", color="#333"),
-                                                    spacing="2",
-                                                ),
-                                                padding="0.5rem 0.75rem",
-                                                cursor="pointer",
-                                                border_bottom="1px solid #f0f0f0",
-                                                _hover={"background": "#f0f4ff"},
-                                                on_click=PortalState.select_director_for_assoc(r["id"]),
-                                            ),
-                                        ),
-                                        border="1.5px solid #d0d0d0",
-                                        border_radius="0.5rem",
-                                        background="white",
-                                        width="100%",
-                                        max_height="180px",
-                                        overflow_y="auto",
-                                    ),
-                                ),
-                                rx.cond(
-                                    PortalState.assoc_selected_director_name != "",
-                                    rx.box(
-                                        rx.hstack(
-                                            rx.icon("circle-check", size=16, color="#16a34a"),
-                                            rx.text(PortalState.assoc_selected_director_name, size="2", color="#166534"),
-                                            spacing="2",
-                                        ),
-                                        padding="0.5rem 0.75rem",
-                                        background="#dcfce7",
-                                        border_radius="0.5rem",
-                                        border_left="3px solid #16a34a",
-                                        width="100%",
-                                    ),
-                                ),
-                                spacing="2",
-                                width="100%",
+                            rx.cond(
+                                PortalState.assoc_editing_id != "",
+                                rx.text("Edit Association", size="2", weight="bold", color="#333"),
+                                rx.text("Add Director to Company", size="2", weight="bold", color="#333"),
                             ),
+                            rx.cond(
+                                PortalState.assoc_editing_id == "",
+                                rx.vstack(
+                                    rx.el.input(
+                                        placeholder="Search director by DIN or name…",
+                                        value=PortalState.assoc_search_query,
+                                        on_change=PortalState.handle_assoc_search,
+                                        type="text",
+                                        style={
+                                            "width": "100%",
+                                            "padding": "0.625rem 0.875rem",
+                                            "border_radius": "0.5rem",
+                                            "border": "2px solid #d0d0d0",
+                                            "background_color": "white",
+                                            "font_size": "0.95rem",
+                                            "color": "black",
+                                            "outline": "none",
+                                            "box_sizing": "border-box",
+                                        },
+                                    ),
+                                    rx.cond(
+                                        PortalState.assoc_search_results.length() > 0,
+                                        rx.box(
+                                            rx.foreach(
+                                                PortalState.assoc_search_results,
+                                                lambda r: rx.box(
+                                                    rx.hstack(
+                                                        rx.text(r["din"], size="2", font_weight="600", color="#667eea"),
+                                                        rx.text(r["name"], size="2", color="#333"),
+                                                        spacing="2",
+                                                    ),
+                                                    padding="0.5rem 0.75rem",
+                                                    cursor="pointer",
+                                                    border_bottom="1px solid #f0f0f0",
+                                                    _hover={"background": "#f0f4ff"},
+                                                    on_click=PortalState.select_director_for_assoc(r["id"]),
+                                                ),
+                                            ),
+                                            border="1.5px solid #d0d0d0",
+                                            border_radius="0.5rem",
+                                            background="white",
+                                            width="100%",
+                                            max_height="180px",
+                                            overflow_y="auto",
+                                        ),
+                                    ),
+                                    spacing="2",
+                                    width="100%",
+                                ),
+                            ),
+                            rx.cond(
+                                PortalState.assoc_selected_director_name != "",
+                                rx.box(
+                                    rx.hstack(
+                                        rx.icon("circle-check", size=16, color="#16a34a"),
+                                        rx.text(PortalState.assoc_selected_director_name, size="2", color="#166534"),
+                                        spacing="2",
+                                    ),
+                                    padding="0.5rem 0.75rem",
+                                    background="#dcfce7",
+                                    border_radius="0.5rem",
+                                    border_left="3px solid #16a34a",
+                                    width="100%",
+                                ),
+                            ),
+                            rx.grid(
+                                _form_input("Designation", "e.g. Director / Additional Director", PortalState.assoc_designation, PortalState.handle_assoc_designation_change),
+                                _form_input("Category", "e.g. Promoter / Professional", PortalState.assoc_category, PortalState.handle_assoc_category_change),
+                                columns="2", spacing="3", width="100%",
+                            ),
+                            rx.grid(
+                                _form_date_input("Original Date of Appointment", PortalState.assoc_original_appointment_date, PortalState.handle_assoc_original_appointment_date_change),
+                                _form_date_input("Date of Appointment at Current Designation", PortalState.assoc_current_designation_date, PortalState.handle_assoc_current_designation_date_change),
+                                columns="2", spacing="3", width="100%",
+                            ),
+                            _form_date_input("Date of Cessation (if applicable)", PortalState.assoc_cessation_date, PortalState.handle_assoc_cessation_date_change),
                             rx.hstack(
                                 rx.vstack(
                                     rx.text("Share %", size="2", weight="bold", color="#333"),
@@ -3079,18 +3336,42 @@ def manage_company_directors_dialog() -> rx.Component:
                                     width="140px",
                                 ),
                                 rx.spacer(),
-                                rx.button(
-                                    rx.hstack(rx.icon("user-round-plus", size=16), rx.text("Add Director"), spacing="2"),
-                                    on_click=PortalState.add_director_to_company,
-                                    loading=PortalState.is_saving,
-                                    disabled=PortalState.is_saving,
-                                    background="linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-                                    color="white",
-                                    size="3",
-                                    align_self="flex-end",
+                                rx.cond(
+                                    PortalState.assoc_editing_id != "",
+                                    rx.button(
+                                        "Cancel",
+                                        on_click=PortalState.cancel_edit_association,
+                                        variant="outline",
+                                        color_scheme="gray",
+                                        size="3",
+                                    ),
+                                ),
+                                rx.cond(
+                                    PortalState.assoc_editing_id != "",
+                                    rx.button(
+                                        rx.hstack(rx.icon("save", size=16), rx.text("Save Changes"), spacing="2"),
+                                        on_click=PortalState.add_director_to_company,
+                                        loading=PortalState.is_saving,
+                                        disabled=PortalState.is_saving,
+                                        background="linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                                        color="white",
+                                        size="3",
+                                        align_self="flex-end",
+                                    ),
+                                    rx.button(
+                                        rx.hstack(rx.icon("user-round-plus", size=16), rx.text("Add Director"), spacing="2"),
+                                        on_click=PortalState.add_director_to_company,
+                                        loading=PortalState.is_saving,
+                                        disabled=PortalState.is_saving,
+                                        background="linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                                        color="white",
+                                        size="3",
+                                        align_self="flex-end",
+                                    ),
                                 ),
                                 width="100%",
                                 align_items="flex-end",
+                                spacing="2",
                             ),
                             rx.cond(
                                 PortalState.assoc_error != "",
@@ -3129,7 +3410,7 @@ def manage_company_directors_dialog() -> rx.Component:
                 background="white",
                 border_radius="0.75rem",
                 padding="2rem",
-                max_width="640px",
+                max_width="820px",
                 width="90%",
                 max_height="90vh",
                 overflow_y="auto",
