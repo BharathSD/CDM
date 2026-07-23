@@ -6,7 +6,19 @@ from datetime import datetime
 import reflex as rx
 from sqlalchemy import func, or_
 
-from .database import Company, CompanyDirector, Director, SessionLocal, User, hash_password, init_db, verify_password
+from .database import (
+    Company,
+    CompanyDirector,
+    CompanyLLP,
+    Director,
+    LLP,
+    LLPDirector,
+    SessionLocal,
+    User,
+    hash_password,
+    init_db,
+    verify_password,
+)
 
 init_db()
 
@@ -151,6 +163,69 @@ class PortalState(rx.State):
     confirm_remove_assoc_id: str = ""
     assoc_editing_id: str = ""
 
+    # ── LLPs ──────────────────────────────────────────────────────────────────
+    llps_search_query: str = ""
+    llps: list[dict] = []
+
+    show_add_llp_form: bool = False
+    form_llpin: str = ""
+    form_llp_name: str = ""
+    form_llp_roc_name: str = ""
+    form_llp_doi: str = ""
+    form_llp_email: str = ""
+    form_llp_address: str = ""
+    form_llp_number_of_partners: str = ""
+    form_llp_number_of_designated_partners: str = ""
+    form_llp_total_obligation: str = ""
+    form_llp_strike_off_date: str = ""
+    form_llp_status_under_cirp: str = ""
+    form_llp_small_llp: str = ""
+    form_llp_error: str = ""
+
+    show_edit_llp_form: bool = False
+    edit_llp_id: str = ""
+    edit_form_llpin: str = ""
+    edit_form_llp_name: str = ""
+    edit_form_llp_roc_name: str = ""
+    edit_form_llp_doi: str = ""
+    edit_form_llp_email: str = ""
+    edit_form_llp_address: str = ""
+    edit_form_llp_number_of_partners: str = ""
+    edit_form_llp_number_of_designated_partners: str = ""
+    edit_form_llp_total_obligation: str = ""
+    edit_form_llp_strike_off_date: str = ""
+    edit_form_llp_status_under_cirp: str = ""
+    edit_form_llp_small_llp: str = ""
+    edit_form_llp_error: str = ""
+
+    # ── LLP ↔ Director (designated partner) associations ─────────────────────
+    show_manage_llp_partners: bool = False
+    managing_llp_id: str = ""
+    managing_llp_name: str = ""
+    llp_partners: list[dict] = []
+    llp_partner_search_query: str = ""
+    llp_partner_search_results: list[dict] = []
+    llp_partner_selected_director_id: str = ""
+    llp_partner_selected_director_name: str = ""
+    llp_partner_designation: str = ""
+    llp_partner_appointment_date: str = ""
+    llp_partner_cessation_date: str = ""
+    llp_partner_is_signatory: str = ""
+    llp_partner_error: str = ""
+    confirm_remove_llp_partner_id: str = ""
+    llp_partner_editing_id: str = ""
+
+    # ── LLP ↔ Company links ────────────────────────────────────────────────
+    show_manage_llp_companies: bool = False
+    llp_companies: list[dict] = []
+    llp_company_search_query: str = ""
+    llp_company_search_results: list[dict] = []
+    llp_company_selected_id: str = ""
+    llp_company_selected_name: str = ""
+    llp_company_relationship_note: str = ""
+    llp_company_error: str = ""
+    confirm_remove_llp_company_id: str = ""
+
     # ── User management (admin only) ──────────────────────────────────────────
     active_tab: str = "companies"
     users: list[dict] = []
@@ -279,6 +354,71 @@ class PortalState(rx.State):
         self.confirm_remove_assoc_id = ""
         self.assoc_editing_id = ""
 
+    def _clear_llp_form(self) -> None:
+        """Reset every LLP-form var to its default."""
+        self.show_add_llp_form = False
+        self.form_llpin = ""
+        self.form_llp_name = ""
+        self.form_llp_roc_name = ""
+        self.form_llp_doi = ""
+        self.form_llp_email = ""
+        self.form_llp_address = ""
+        self.form_llp_number_of_partners = ""
+        self.form_llp_number_of_designated_partners = ""
+        self.form_llp_total_obligation = ""
+        self.form_llp_strike_off_date = ""
+        self.form_llp_status_under_cirp = ""
+        self.form_llp_small_llp = ""
+        self.form_llp_error = ""
+
+    def _clear_edit_llp_form(self) -> None:
+        """Reset every edit-LLP-form var to its default."""
+        self.show_edit_llp_form = False
+        self.edit_llp_id = ""
+        self.edit_form_llpin = ""
+        self.edit_form_llp_name = ""
+        self.edit_form_llp_roc_name = ""
+        self.edit_form_llp_doi = ""
+        self.edit_form_llp_email = ""
+        self.edit_form_llp_address = ""
+        self.edit_form_llp_number_of_partners = ""
+        self.edit_form_llp_number_of_designated_partners = ""
+        self.edit_form_llp_total_obligation = ""
+        self.edit_form_llp_strike_off_date = ""
+        self.edit_form_llp_status_under_cirp = ""
+        self.edit_form_llp_small_llp = ""
+        self.edit_form_llp_error = ""
+
+    def _clear_manage_llp_partners(self) -> None:
+        """Reset LLP-director (designated partner) association panel state."""
+        self.show_manage_llp_partners = False
+        self.managing_llp_id = ""
+        self.managing_llp_name = ""
+        self.llp_partners = []
+        self.llp_partner_search_query = ""
+        self.llp_partner_search_results = []
+        self.llp_partner_selected_director_id = ""
+        self.llp_partner_selected_director_name = ""
+        self.llp_partner_designation = ""
+        self.llp_partner_appointment_date = ""
+        self.llp_partner_cessation_date = ""
+        self.llp_partner_is_signatory = ""
+        self.llp_partner_error = ""
+        self.confirm_remove_llp_partner_id = ""
+        self.llp_partner_editing_id = ""
+
+    def _clear_manage_llp_companies(self) -> None:
+        """Reset LLP-company link panel state."""
+        self.show_manage_llp_companies = False
+        self.llp_companies = []
+        self.llp_company_search_query = ""
+        self.llp_company_search_results = []
+        self.llp_company_selected_id = ""
+        self.llp_company_selected_name = ""
+        self.llp_company_relationship_note = ""
+        self.llp_company_error = ""
+        self.confirm_remove_llp_company_id = ""
+
     # ── Computed vars ─────────────────────────────────────────────────────────
 
     @rx.var
@@ -322,9 +462,12 @@ class PortalState(rx.State):
         self._clear_edit_user_form()
         self._clear_director_form()
         self._clear_edit_director_form()
+        self._clear_llp_form()
+        self._clear_edit_llp_form()
         if self.is_authenticated:
             self.load_companies()
             self.load_directors()
+            self.load_llps()
             if self.active_tab == "admin" and self.role == "ADMIN":
                 self.load_users()
 
@@ -371,8 +514,10 @@ class PortalState(rx.State):
         self.companies = []
         self.users = []
         self.directors = []
+        self.llps = []
         self.search_query = ""
         self.directors_search_query = ""
+        self.llps_search_query = ""
         self.filter_classes = []
         self.filter_categories = []
         self.filter_sub_categories = []
@@ -386,6 +531,9 @@ class PortalState(rx.State):
         self._clear_edit_user_form()
         self._clear_edit_director_form()
         self._clear_manage_directors()
+        self._clear_edit_llp_form()
+        self._clear_manage_llp_partners()
+        self._clear_manage_llp_companies()
 
     def clear_error(self):
         self.error_message = ""
@@ -1056,6 +1204,8 @@ class PortalState(rx.State):
         self.error_message = ""
         if tab == "directors":
             self.load_directors()
+        if tab == "llps":
+            self.load_llps()
         if tab == "admin" and self.role == "ADMIN":
             self.load_users()
 
@@ -1718,6 +1868,722 @@ class PortalState(rx.State):
                 session.delete(assoc)
                 session.commit()
         self._load_company_directors()
+
+    # ── LLPs ─────────────────────────────────────────────────────────────────
+
+    def load_llps(self):
+        with SessionLocal() as session:
+            query = session.query(LLP)
+            if self.llps_search_query.strip():
+                term = f"%{self.llps_search_query.strip()}%"
+                query = query.filter(or_(LLP.llpin.ilike(term), LLP.name.ilike(term)))
+            rows = query.order_by(LLP.id.desc()).all()
+            self.llps = [
+                {
+                    "id": str(r.id),
+                    "llpin": r.llpin,
+                    "name": r.name,
+                    "status": r.status,
+                    "roc_name": r.roc_name or "",
+                    "doi": _format_date(r.date_of_incorporation),
+                    "email": r.email or "",
+                    "address": r.address or "",
+                    "number_of_partners": r.number_of_partners or "",
+                    "number_of_designated_partners": r.number_of_designated_partners or "",
+                    "total_obligation": str(r.total_obligation_of_contribution) if r.total_obligation_of_contribution is not None else "",
+                    "strike_off_date": _format_date(r.strike_off_date),
+                    "status_under_cirp": r.status_under_cirp or "",
+                    "small_llp": r.small_llp or "",
+                }
+                for r in rows
+            ]
+
+    def handle_llps_search(self, value: str):
+        self.llps_search_query = value
+        self.load_llps()
+
+    def confirm_delete_llp(self, llp_id: str):
+        if self.role != "ADMIN":
+            self.error_message = "Only admins can delete LLPs."
+            return
+        try:
+            lid = int(llp_id)
+        except (ValueError, TypeError):
+            self.error_message = f"Invalid LLP ID '{llp_id}'."
+            return
+        with SessionLocal() as session:
+            llp = session.query(LLP).filter(LLP.id == lid).first()
+            if llp:
+                session.delete(llp)
+                session.commit()
+        self.load_llps()
+
+    # ── Add-LLP form handlers ───────────────────────────────────────────────
+
+    def open_add_llp_form(self):
+        self._clear_llp_form()
+        self.show_add_llp_form = True
+
+    def close_add_llp_form(self):
+        self._clear_llp_form()
+
+    def handle_form_llpin_change(self, value: str):
+        if self.show_add_llp_form:
+            self.form_llpin = value
+
+    def handle_form_llp_name_change(self, value: str):
+        if self.show_add_llp_form:
+            self.form_llp_name = value
+
+    def handle_form_llp_roc_name_change(self, value: str):
+        if self.show_add_llp_form:
+            self.form_llp_roc_name = value
+
+    def handle_form_llp_doi_change(self, value: str):
+        if self.show_add_llp_form:
+            m = _ISO_DATE_RE.match(value)
+            self.form_llp_doi = f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m else value
+
+    def handle_form_llp_email_change(self, value: str):
+        if self.show_add_llp_form:
+            self.form_llp_email = value
+
+    def handle_form_llp_address_change(self, value: str):
+        if self.show_add_llp_form:
+            self.form_llp_address = value
+
+    def handle_form_llp_number_of_partners_change(self, value: str):
+        if self.show_add_llp_form:
+            self.form_llp_number_of_partners = value
+
+    def handle_form_llp_number_of_designated_partners_change(self, value: str):
+        if self.show_add_llp_form:
+            self.form_llp_number_of_designated_partners = value
+
+    def handle_form_llp_total_obligation_change(self, value):
+        if self.show_add_llp_form:
+            self.form_llp_total_obligation = str(value) if value is not None else ""
+
+    def handle_form_llp_strike_off_date_change(self, value: str):
+        if self.show_add_llp_form:
+            m = _ISO_DATE_RE.match(value)
+            self.form_llp_strike_off_date = f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m else value
+
+    def handle_form_llp_status_under_cirp_change(self, value: str):
+        if self.show_add_llp_form:
+            self.form_llp_status_under_cirp = value
+
+    def handle_form_llp_small_llp_change(self, value: str):
+        if self.show_add_llp_form:
+            self.form_llp_small_llp = value
+
+    def save_llp(self):
+        if self.role not in ("ADMIN", "EDITOR"):
+            self.form_llp_error = "You do not have permission to add LLPs."
+            return
+        llpin = self.form_llpin.strip()
+        name = self.form_llp_name.strip()
+        if not llpin or not name:
+            self.form_llp_error = "LLPIN and Name are required."
+            return
+        email = self.form_llp_email.strip()
+        if email and not _EMAIL_RE.match(email):
+            self.form_llp_error = "Enter a valid email address."
+            return
+        doi = self.form_llp_doi.strip()
+        if doi and not _parse_doi(doi):
+            self.form_llp_error = "Invalid date of incorporation. Use DD/MM/YYYY."
+            return
+        strike_off_date = self.form_llp_strike_off_date.strip()
+        if strike_off_date and not _parse_doi(strike_off_date):
+            self.form_llp_error = "Invalid strike-off date. Use DD/MM/YYYY."
+            return
+        extra = {
+            "roc_name": self.form_llp_roc_name.strip(),
+            "address": self.form_llp_address.strip(),
+            "number_of_partners": self.form_llp_number_of_partners.strip(),
+            "number_of_designated_partners": self.form_llp_number_of_designated_partners.strip(),
+            "total_obligation": str(self.form_llp_total_obligation).strip(),
+            "status_under_cirp": self.form_llp_status_under_cirp.strip(),
+            "small_llp": self.form_llp_small_llp.strip(),
+        }
+        self._clear_llp_form()
+        self.is_saving = True
+        return PortalState.commit_save_llp(
+            llpin, name, extra["roc_name"], doi, email, extra["address"],
+            extra["number_of_partners"], extra["number_of_designated_partners"],
+            extra["total_obligation"], strike_off_date,
+            extra["status_under_cirp"], extra["small_llp"],
+        )
+
+    def commit_save_llp(
+        self, llpin: str, name: str, roc_name: str = "", doi: str = "", email: str = "",
+        address: str = "", number_of_partners: str = "", number_of_designated_partners: str = "",
+        total_obligation: str = "", strike_off_date: str = "",
+        status_under_cirp: str = "", small_llp: str = "",
+    ):
+        def _num(v): return float(v) if v else None
+        with SessionLocal() as session:
+            if session.query(LLP).filter(LLP.llpin == llpin).first():
+                self.error_message = f"An LLP with LLPIN '{llpin}' already exists."
+                self.is_saving = False
+                return
+            session.add(
+                LLP(
+                    llpin=llpin,
+                    name=name,
+                    roc_name=roc_name or None,
+                    date_of_incorporation=doi or None,
+                    email=email or None,
+                    address=address or None,
+                    number_of_partners=number_of_partners or None,
+                    number_of_designated_partners=number_of_designated_partners or None,
+                    total_obligation_of_contribution=_num(total_obligation),
+                    strike_off_date=strike_off_date or None,
+                    status_under_cirp=status_under_cirp or None,
+                    small_llp=small_llp or None,
+                )
+            )
+            session.commit()
+        self.is_saving = False
+        self.load_llps()
+
+    # ── Edit-LLP form handlers ──────────────────────────────────────────────
+
+    def open_edit_llp_form(self, llp_id: str):
+        self._clear_edit_llp_form()
+        self.edit_llp_id = llp_id
+        for l in self.llps:
+            if l["id"] == llp_id:
+                self.edit_form_llpin = l["llpin"]
+                self.edit_form_llp_name = l["name"]
+                self.edit_form_llp_roc_name = l["roc_name"]
+                self.edit_form_llp_doi = l["doi"]
+                self.edit_form_llp_email = l["email"]
+                self.edit_form_llp_address = l["address"]
+                self.edit_form_llp_number_of_partners = l["number_of_partners"]
+                self.edit_form_llp_number_of_designated_partners = l["number_of_designated_partners"]
+                self.edit_form_llp_total_obligation = l["total_obligation"]
+                self.edit_form_llp_strike_off_date = l["strike_off_date"]
+                self.edit_form_llp_status_under_cirp = l["status_under_cirp"]
+                self.edit_form_llp_small_llp = l["small_llp"]
+                break
+        self.show_edit_llp_form = True
+
+    def close_edit_llp_form(self):
+        self._clear_edit_llp_form()
+
+    def handle_edit_form_llpin_change(self, value: str):
+        if self.show_edit_llp_form:
+            self.edit_form_llpin = value
+
+    def handle_edit_form_llp_name_change(self, value: str):
+        if self.show_edit_llp_form:
+            self.edit_form_llp_name = value
+
+    def handle_edit_form_llp_roc_name_change(self, value: str):
+        if self.show_edit_llp_form:
+            self.edit_form_llp_roc_name = value
+
+    def handle_edit_form_llp_doi_change(self, value: str):
+        if self.show_edit_llp_form:
+            m = _ISO_DATE_RE.match(value)
+            self.edit_form_llp_doi = f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m else value
+
+    def handle_edit_form_llp_email_change(self, value: str):
+        if self.show_edit_llp_form:
+            self.edit_form_llp_email = value
+
+    def handle_edit_form_llp_address_change(self, value: str):
+        if self.show_edit_llp_form:
+            self.edit_form_llp_address = value
+
+    def handle_edit_form_llp_number_of_partners_change(self, value: str):
+        if self.show_edit_llp_form:
+            self.edit_form_llp_number_of_partners = value
+
+    def handle_edit_form_llp_number_of_designated_partners_change(self, value: str):
+        if self.show_edit_llp_form:
+            self.edit_form_llp_number_of_designated_partners = value
+
+    def handle_edit_form_llp_total_obligation_change(self, value):
+        if self.show_edit_llp_form:
+            self.edit_form_llp_total_obligation = str(value) if value is not None else ""
+
+    def handle_edit_form_llp_strike_off_date_change(self, value: str):
+        if self.show_edit_llp_form:
+            m = _ISO_DATE_RE.match(value)
+            self.edit_form_llp_strike_off_date = f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m else value
+
+    def handle_edit_form_llp_status_under_cirp_change(self, value: str):
+        if self.show_edit_llp_form:
+            self.edit_form_llp_status_under_cirp = value
+
+    def handle_edit_form_llp_small_llp_change(self, value: str):
+        if self.show_edit_llp_form:
+            self.edit_form_llp_small_llp = value
+
+    def save_edit_llp(self):
+        if self.role not in ("ADMIN", "EDITOR"):
+            self.edit_form_llp_error = "You do not have permission to edit LLPs."
+            return
+        llpin = self.edit_form_llpin.strip()
+        name = self.edit_form_llp_name.strip()
+        if not llpin or not name:
+            self.edit_form_llp_error = "LLPIN and Name are required."
+            return
+        email = self.edit_form_llp_email.strip()
+        if email and not _EMAIL_RE.match(email):
+            self.edit_form_llp_error = "Enter a valid email address."
+            return
+        doi = self.edit_form_llp_doi.strip()
+        if doi and not _parse_doi(doi):
+            self.edit_form_llp_error = "Invalid date of incorporation. Use DD/MM/YYYY."
+            return
+        strike_off_date = self.edit_form_llp_strike_off_date.strip()
+        if strike_off_date and not _parse_doi(strike_off_date):
+            self.edit_form_llp_error = "Invalid strike-off date. Use DD/MM/YYYY."
+            return
+        lid = self.edit_llp_id
+        extra = {
+            "roc_name": self.edit_form_llp_roc_name.strip(),
+            "address": self.edit_form_llp_address.strip(),
+            "number_of_partners": self.edit_form_llp_number_of_partners.strip(),
+            "number_of_designated_partners": self.edit_form_llp_number_of_designated_partners.strip(),
+            "total_obligation": str(self.edit_form_llp_total_obligation).strip(),
+            "status_under_cirp": self.edit_form_llp_status_under_cirp.strip(),
+            "small_llp": self.edit_form_llp_small_llp.strip(),
+        }
+        self._clear_edit_llp_form()
+        self.is_saving = True
+        return PortalState.commit_edit_llp(
+            lid, llpin, name, extra["roc_name"], doi, email, extra["address"],
+            extra["number_of_partners"], extra["number_of_designated_partners"],
+            extra["total_obligation"], strike_off_date,
+            extra["status_under_cirp"], extra["small_llp"],
+        )
+
+    def commit_edit_llp(
+        self, llp_id: str, llpin: str, name: str, roc_name: str = "", doi: str = "", email: str = "",
+        address: str = "", number_of_partners: str = "", number_of_designated_partners: str = "",
+        total_obligation: str = "", strike_off_date: str = "",
+        status_under_cirp: str = "", small_llp: str = "",
+    ):
+        try:
+            lid = int(llp_id)
+        except (ValueError, TypeError):
+            self.error_message = f"Invalid LLP ID '{llp_id}'."
+            self.is_saving = False
+            return
+        def _num(v): return float(v) if v else None
+        with SessionLocal() as session:
+            existing = session.query(LLP).filter(LLP.llpin == llpin, LLP.id != lid).first()
+            if existing:
+                self.error_message = f"Another LLP with LLPIN '{llpin}' already exists."
+                self.is_saving = False
+                return
+            llp = session.query(LLP).filter(LLP.id == lid).first()
+            if llp:
+                llp.llpin = llpin
+                llp.name = name
+                llp.roc_name = roc_name or None
+                llp.date_of_incorporation = doi or None
+                llp.email = email or None
+                llp.address = address or None
+                llp.number_of_partners = number_of_partners or None
+                llp.number_of_designated_partners = number_of_designated_partners or None
+                llp.total_obligation_of_contribution = _num(total_obligation)
+                llp.strike_off_date = strike_off_date or None
+                llp.status_under_cirp = status_under_cirp or None
+                llp.small_llp = small_llp or None
+                session.commit()
+        self.is_saving = False
+        self.load_llps()
+
+    # ── LLP ↔ Director (designated partner) associations ──────────────────────
+
+    def _load_llp_partners(self):
+        try:
+            lid = int(self.managing_llp_id)
+        except (ValueError, TypeError):
+            return
+        with SessionLocal() as session:
+            rows = (
+                session.query(LLPDirector, Director)
+                .join(Director, LLPDirector.director_id == Director.id)
+                .filter(LLPDirector.llp_id == lid)
+                .all()
+            )
+            self.llp_partners = [
+                {
+                    "assoc_id": str(ld.id),
+                    "director_id": str(d.id),
+                    "din": d.din,
+                    "name": d.name,
+                    "designation": ld.designation or "",
+                    "appointment_date": _format_date(ld.appointment_date),
+                    "cessation_date": _format_date(ld.cessation_date),
+                    "is_signatory": ld.is_signatory or "",
+                }
+                for ld, d in rows
+            ]
+
+    def open_manage_llp_partners(self, llp_id: str):
+        self._clear_manage_llp_partners()
+        self.managing_llp_id = llp_id
+        for l in self.llps:
+            if l["id"] == llp_id:
+                self.managing_llp_name = l["name"]
+                break
+        self.show_manage_llp_partners = True
+        self._load_llp_partners()
+
+    def close_manage_llp_partners(self):
+        self._clear_manage_llp_partners()
+
+    def handle_llp_partner_search(self, value: str):
+        self.llp_partner_search_query = value
+        self.llp_partner_selected_director_id = ""
+        self.llp_partner_selected_director_name = ""
+        if not value.strip():
+            self.llp_partner_search_results = []
+            return
+        with SessionLocal() as session:
+            term = f"%{value.strip()}%"
+            rows = (
+                session.query(Director)
+                .filter(or_(Director.din.ilike(term), Director.name.ilike(term)))
+                .limit(8)
+                .all()
+            )
+            self.llp_partner_search_results = [
+                {"id": str(r.id), "din": r.din, "name": r.name} for r in rows
+            ]
+
+    def select_director_for_llp_partner(self, director_id: str):
+        self.llp_partner_selected_director_id = director_id
+        self.llp_partner_search_results = []
+        try:
+            did = int(director_id)
+        except (ValueError, TypeError):
+            return
+        with SessionLocal() as session:
+            d = session.query(Director).filter(Director.id == did).first()
+            if d:
+                self.llp_partner_selected_director_name = f"{d.name}  (DIN: {d.din})"
+                self.llp_partner_search_query = d.name
+
+    def handle_llp_partner_designation_change(self, value: str):
+        self.llp_partner_designation = value
+
+    def handle_llp_partner_appointment_date_change(self, value: str):
+        m = _ISO_DATE_RE.match(value)
+        self.llp_partner_appointment_date = f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m else value
+
+    def handle_llp_partner_cessation_date_change(self, value: str):
+        m = _ISO_DATE_RE.match(value)
+        self.llp_partner_cessation_date = f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m else value
+
+    def handle_llp_partner_is_signatory_change(self, value: str):
+        self.llp_partner_is_signatory = value
+
+    def _validate_llp_partner_form(self) -> bool:
+        if not self.llp_partner_designation.strip():
+            self.llp_partner_error = "Designation is required."
+            return False
+        for label, value in (
+            ("Date of Appointment", self.llp_partner_appointment_date),
+            ("Cessation Date", self.llp_partner_cessation_date),
+        ):
+            if value.strip() and not _parse_doi(value.strip()):
+                self.llp_partner_error = f"{label}: invalid date. Use DD/MM/YYYY."
+                return False
+        return True
+
+    def add_director_to_llp(self):
+        if self.role not in ("ADMIN", "EDITOR"):
+            self.llp_partner_error = "You do not have permission."
+            return
+        if self.llp_partner_editing_id:
+            return self.save_llp_partner_edit()
+        if not self.llp_partner_selected_director_id:
+            self.llp_partner_error = "Please select a director from the search results."
+            return
+        if not self._validate_llp_partner_form():
+            return
+        self.llp_partner_error = ""
+        lid = self.managing_llp_id
+        did = self.llp_partner_selected_director_id
+        designation = self.llp_partner_designation.strip()
+        appointment_date = self.llp_partner_appointment_date.strip()
+        cessation_date = self.llp_partner_cessation_date.strip()
+        is_signatory = self.llp_partner_is_signatory.strip()
+        self.is_saving = True
+        return PortalState.commit_add_director_to_llp(
+            lid, did, designation, appointment_date, cessation_date, is_signatory,
+        )
+
+    def commit_add_director_to_llp(
+        self, llp_id: str, director_id: str, designation: str = "",
+        appointment_date: str = "", cessation_date: str = "", is_signatory: str = "",
+    ):
+        try:
+            lid = int(llp_id)
+            did = int(director_id)
+        except (ValueError, TypeError):
+            self.is_saving = False
+            return
+        with SessionLocal() as session:
+            existing = session.query(LLPDirector).filter(
+                LLPDirector.llp_id == lid, LLPDirector.director_id == did,
+            ).first()
+            if existing:
+                self.llp_partner_error = "This director is already a designated partner of this LLP."
+                self.is_saving = False
+                return
+            session.add(
+                LLPDirector(
+                    llp_id=lid,
+                    director_id=did,
+                    designation=designation or None,
+                    appointment_date=appointment_date or None,
+                    cessation_date=cessation_date or None,
+                    is_signatory=is_signatory or None,
+                )
+            )
+            session.commit()
+        self.llp_partner_designation = ""
+        self.llp_partner_appointment_date = ""
+        self.llp_partner_cessation_date = ""
+        self.llp_partner_is_signatory = ""
+        self.llp_partner_error = ""
+        self.is_saving = False
+        self._load_llp_partners()
+
+    def start_edit_llp_partner(self, assoc_id: str):
+        for d in self.llp_partners:
+            if d["assoc_id"] == assoc_id:
+                self.llp_partner_editing_id = assoc_id
+                self.llp_partner_selected_director_id = d["director_id"]
+                self.llp_partner_selected_director_name = f"{d['name']}  (DIN: {d['din']})"
+                self.llp_partner_search_query = ""
+                self.llp_partner_search_results = []
+                self.llp_partner_designation = d["designation"]
+                self.llp_partner_appointment_date = d["appointment_date"]
+                self.llp_partner_cessation_date = d["cessation_date"]
+                self.llp_partner_is_signatory = d["is_signatory"]
+                self.llp_partner_error = ""
+                break
+
+    def cancel_edit_llp_partner(self):
+        self.llp_partner_editing_id = ""
+        self.llp_partner_selected_director_id = ""
+        self.llp_partner_selected_director_name = ""
+        self.llp_partner_search_query = ""
+        self.llp_partner_search_results = []
+        self.llp_partner_designation = ""
+        self.llp_partner_appointment_date = ""
+        self.llp_partner_cessation_date = ""
+        self.llp_partner_is_signatory = ""
+        self.llp_partner_error = ""
+
+    def save_llp_partner_edit(self):
+        if self.role not in ("ADMIN", "EDITOR"):
+            self.llp_partner_error = "You do not have permission."
+            return
+        if not self._validate_llp_partner_form():
+            return
+        self.llp_partner_error = ""
+        aid = self.llp_partner_editing_id
+        designation = self.llp_partner_designation.strip()
+        appointment_date = self.llp_partner_appointment_date.strip()
+        cessation_date = self.llp_partner_cessation_date.strip()
+        is_signatory = self.llp_partner_is_signatory.strip()
+        self.is_saving = True
+        return PortalState.commit_edit_llp_partner(
+            aid, designation, appointment_date, cessation_date, is_signatory,
+        )
+
+    def commit_edit_llp_partner(
+        self, assoc_id: str, designation: str = "",
+        appointment_date: str = "", cessation_date: str = "", is_signatory: str = "",
+    ):
+        try:
+            aid = int(assoc_id)
+        except (ValueError, TypeError):
+            self.is_saving = False
+            return
+        with SessionLocal() as session:
+            assoc = session.query(LLPDirector).filter(LLPDirector.id == aid).first()
+            if not assoc:
+                self.is_saving = False
+                return
+            assoc.designation = designation or None
+            assoc.appointment_date = appointment_date or None
+            assoc.cessation_date = cessation_date or None
+            assoc.is_signatory = is_signatory or None
+            session.commit()
+        self.cancel_edit_llp_partner()
+        self.is_saving = False
+        self._load_llp_partners()
+
+    def prompt_remove_llp_partner(self, assoc_id: str):
+        self.confirm_remove_llp_partner_id = assoc_id
+
+    def cancel_remove_llp_partner(self):
+        self.confirm_remove_llp_partner_id = ""
+
+    def remove_director_from_llp(self, assoc_id: str):
+        if self.role not in ("ADMIN", "EDITOR"):
+            self.llp_partner_error = "You do not have permission."
+            return
+        self.confirm_remove_llp_partner_id = ""
+        if self.llp_partner_editing_id == assoc_id:
+            self.cancel_edit_llp_partner()
+        try:
+            aid = int(assoc_id)
+        except (ValueError, TypeError):
+            return
+        with SessionLocal() as session:
+            assoc = session.query(LLPDirector).filter(LLPDirector.id == aid).first()
+            if assoc:
+                session.delete(assoc)
+                session.commit()
+        self._load_llp_partners()
+
+    # ── LLP ↔ Company links ────────────────────────────────────────────────
+
+    def _load_llp_companies(self):
+        try:
+            lid = int(self.managing_llp_id)
+        except (ValueError, TypeError):
+            return
+        with SessionLocal() as session:
+            rows = (
+                session.query(CompanyLLP, Company)
+                .join(Company, CompanyLLP.company_id == Company.id)
+                .filter(CompanyLLP.llp_id == lid)
+                .all()
+            )
+            self.llp_companies = [
+                {
+                    "link_id": str(cl.id),
+                    "company_id": str(c.id),
+                    "cin": c.cin,
+                    "name": c.name,
+                    "relationship_note": cl.relationship_note or "",
+                }
+                for cl, c in rows
+            ]
+
+    def open_manage_llp_companies(self, llp_id: str):
+        self._clear_manage_llp_companies()
+        self.managing_llp_id = llp_id
+        for l in self.llps:
+            if l["id"] == llp_id:
+                self.managing_llp_name = l["name"]
+                break
+        self.show_manage_llp_companies = True
+        self._load_llp_companies()
+
+    def close_manage_llp_companies(self):
+        self._clear_manage_llp_companies()
+
+    def handle_llp_company_search(self, value: str):
+        self.llp_company_search_query = value
+        self.llp_company_selected_id = ""
+        self.llp_company_selected_name = ""
+        if not value.strip():
+            self.llp_company_search_results = []
+            return
+        with SessionLocal() as session:
+            term = f"%{value.strip()}%"
+            rows = (
+                session.query(Company)
+                .filter(or_(Company.cin.ilike(term), Company.name.ilike(term)))
+                .limit(8)
+                .all()
+            )
+            self.llp_company_search_results = [
+                {"id": str(r.id), "cin": r.cin, "name": r.name} for r in rows
+            ]
+
+    def select_company_for_llp(self, company_id: str):
+        self.llp_company_selected_id = company_id
+        self.llp_company_search_results = []
+        try:
+            cid = int(company_id)
+        except (ValueError, TypeError):
+            return
+        with SessionLocal() as session:
+            c = session.query(Company).filter(Company.id == cid).first()
+            if c:
+                self.llp_company_selected_name = f"{c.name}  (CIN: {c.cin})"
+                self.llp_company_search_query = c.name
+
+    def handle_llp_company_relationship_note_change(self, value: str):
+        self.llp_company_relationship_note = value
+
+    def link_company_to_llp(self):
+        if self.role not in ("ADMIN", "EDITOR"):
+            self.llp_company_error = "You do not have permission."
+            return
+        if not self.llp_company_selected_id:
+            self.llp_company_error = "Please select a company from the search results."
+            return
+        self.llp_company_error = ""
+        lid = self.managing_llp_id
+        cid = self.llp_company_selected_id
+        note = self.llp_company_relationship_note.strip()
+        self.is_saving = True
+        return PortalState.commit_link_company_to_llp(lid, cid, note)
+
+    def commit_link_company_to_llp(self, llp_id: str, company_id: str, relationship_note: str = ""):
+        try:
+            lid = int(llp_id)
+            cid = int(company_id)
+        except (ValueError, TypeError):
+            self.is_saving = False
+            return
+        with SessionLocal() as session:
+            existing = session.query(CompanyLLP).filter(
+                CompanyLLP.llp_id == lid, CompanyLLP.company_id == cid,
+            ).first()
+            if existing:
+                self.llp_company_error = "This company is already linked to this LLP."
+                self.is_saving = False
+                return
+            session.add(CompanyLLP(company_id=cid, llp_id=lid, relationship_note=relationship_note or None))
+            session.commit()
+        self.llp_company_relationship_note = ""
+        self.llp_company_selected_id = ""
+        self.llp_company_selected_name = ""
+        self.llp_company_search_query = ""
+        self.llp_company_error = ""
+        self.is_saving = False
+        self._load_llp_companies()
+
+    def prompt_remove_llp_company(self, link_id: str):
+        self.confirm_remove_llp_company_id = link_id
+
+    def cancel_remove_llp_company(self):
+        self.confirm_remove_llp_company_id = ""
+
+    def remove_company_from_llp(self, link_id: str):
+        if self.role not in ("ADMIN", "EDITOR"):
+            self.llp_company_error = "You do not have permission."
+            return
+        self.confirm_remove_llp_company_id = ""
+        try:
+            id_ = int(link_id)
+        except (ValueError, TypeError):
+            return
+        with SessionLocal() as session:
+            link = session.query(CompanyLLP).filter(CompanyLLP.id == id_).first()
+            if link:
+                session.delete(link)
+                session.commit()
+        self._load_llp_companies()
 
 
 def login_page() -> rx.Component:
@@ -3430,6 +4296,1007 @@ def manage_company_directors_dialog() -> rx.Component:
     )
 
 
+def add_llp_dialog() -> rx.Component:
+    return rx.cond(
+        PortalState.show_add_llp_form,
+        rx.box(
+            rx.box(
+                rx.vstack(
+                    rx.hstack(
+                        rx.icon("building", size=22, color="#667eea"),
+                        rx.heading("Add LLP", size="5", color="#1a1a1a", weight="bold"),
+                        rx.spacer(),
+                        rx.button(
+                            rx.icon("x", size=18),
+                            on_click=PortalState.close_add_llp_form,
+                            variant="ghost",
+                            size="1",
+                        ),
+                        width="100%",
+                        align_items="center",
+                    ),
+                    rx.divider(),
+                    rx.grid(
+                        _form_input("LLPIN", "e.g. AAA-1234", PortalState.form_llpin, PortalState.handle_form_llpin_change),
+                        _form_input("LLP Name", "Enter full LLP name", PortalState.form_llp_name, PortalState.handle_form_llp_name_change),
+                        columns="2", spacing="3", width="100%",
+                    ),
+                    rx.grid(
+                        _form_input("ROC Name", "e.g. ROC Bangalore", PortalState.form_llp_roc_name, PortalState.handle_form_llp_roc_name_change),
+                        _form_date_input("Date of Incorporation", PortalState.form_llp_doi, PortalState.handle_form_llp_doi_change),
+                        columns="2", spacing="3", width="100%",
+                    ),
+                    rx.grid(
+                        _form_input("Email ID", "e.g. llp@example.com", PortalState.form_llp_email, PortalState.handle_form_llp_email_change, "email"),
+                        _form_input("Total Obligation of Contribution (₹)", "e.g. 500000", PortalState.form_llp_total_obligation, PortalState.handle_form_llp_total_obligation_change, "number"),
+                        columns="2", spacing="3", width="100%",
+                    ),
+                    _form_textarea("Registered Address", "Enter registered address", PortalState.form_llp_address, PortalState.handle_form_llp_address_change),
+                    rx.grid(
+                        _form_input("Number of Partners", "e.g. 2", PortalState.form_llp_number_of_partners, PortalState.handle_form_llp_number_of_partners_change),
+                        _form_input("Number of Designated Partners", "e.g. 2", PortalState.form_llp_number_of_designated_partners, PortalState.handle_form_llp_number_of_designated_partners_change),
+                        columns="2", spacing="3", width="100%",
+                    ),
+                    rx.grid(
+                        _form_select("Status under CIRP", ["Yes", "No"], PortalState.form_llp_status_under_cirp, PortalState.handle_form_llp_status_under_cirp_change),
+                        _form_select("Small LLP", ["Yes", "No"], PortalState.form_llp_small_llp, PortalState.handle_form_llp_small_llp_change),
+                        columns="2", spacing="3", width="100%",
+                    ),
+                    _form_date_input("Strike off / amalgamated / transferred date", PortalState.form_llp_strike_off_date, PortalState.handle_form_llp_strike_off_date_change),
+                    rx.cond(
+                        PortalState.form_llp_error != "",
+                        rx.box(
+                            rx.hstack(
+                                rx.icon("circle-alert", size=16, color="#dc2626"),
+                                rx.text(PortalState.form_llp_error, size="2", color="#dc2626"),
+                                spacing="2",
+                            ),
+                            padding="0.75rem",
+                            border_radius="0.5rem",
+                            background="#fee2e2",
+                            border_left="4px solid #dc2626",
+                            width="100%",
+                        ),
+                    ),
+                    rx.hstack(
+                        rx.button(
+                            "Cancel",
+                            on_click=PortalState.close_add_llp_form,
+                            variant="outline",
+                            color_scheme="gray",
+                            size="3",
+                        ),
+                        rx.button(
+                            rx.hstack(rx.icon("save", size=16), rx.text("Save LLP"), spacing="2"),
+                            on_click=PortalState.save_llp,
+                            loading=PortalState.is_saving,
+                            disabled=PortalState.is_saving,
+                            background="linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                            color="white",
+                            size="3",
+                        ),
+                        spacing="3",
+                        justify="end",
+                        width="100%",
+                        padding_top="0.5rem",
+                    ),
+                    spacing="4",
+                    width="100%",
+                ),
+                background="white",
+                border_radius="0.75rem",
+                padding="2rem",
+                max_width="620px",
+                width="90%",
+                max_height="90vh",
+                overflow_y="auto",
+                box_shadow="0 20px 60px rgba(0,0,0,0.3)",
+            ),
+            position="fixed",
+            top="0",
+            left="0",
+            width="100vw",
+            height="100vh",
+            background="rgba(0,0,0,0.5)",
+            z_index="1000",
+            display="flex",
+            align_items="center",
+            justify_content="center",
+        ),
+    )
+
+
+def edit_llp_dialog() -> rx.Component:
+    return rx.cond(
+        PortalState.show_edit_llp_form,
+        rx.box(
+            rx.box(
+                rx.vstack(
+                    rx.hstack(
+                        rx.icon("pencil", size=22, color="#667eea"),
+                        rx.heading("Edit LLP", size="5", color="#1a1a1a", weight="bold"),
+                        rx.spacer(),
+                        rx.button(
+                            rx.icon("x", size=18),
+                            on_click=PortalState.close_edit_llp_form,
+                            variant="ghost",
+                            size="1",
+                        ),
+                        width="100%",
+                        align_items="center",
+                    ),
+                    rx.divider(),
+                    rx.grid(
+                        _form_input("LLPIN", "e.g. AAA-1234", PortalState.edit_form_llpin, PortalState.handle_edit_form_llpin_change),
+                        _form_input("LLP Name", "Enter full LLP name", PortalState.edit_form_llp_name, PortalState.handle_edit_form_llp_name_change),
+                        columns="2", spacing="3", width="100%",
+                    ),
+                    rx.grid(
+                        _form_input("ROC Name", "e.g. ROC Bangalore", PortalState.edit_form_llp_roc_name, PortalState.handle_edit_form_llp_roc_name_change),
+                        _form_date_input("Date of Incorporation", PortalState.edit_form_llp_doi, PortalState.handle_edit_form_llp_doi_change),
+                        columns="2", spacing="3", width="100%",
+                    ),
+                    rx.grid(
+                        _form_input("Email ID", "e.g. llp@example.com", PortalState.edit_form_llp_email, PortalState.handle_edit_form_llp_email_change, "email"),
+                        _form_input("Total Obligation of Contribution (₹)", "e.g. 500000", PortalState.edit_form_llp_total_obligation, PortalState.handle_edit_form_llp_total_obligation_change, "number"),
+                        columns="2", spacing="3", width="100%",
+                    ),
+                    _form_textarea("Registered Address", "Enter registered address", PortalState.edit_form_llp_address, PortalState.handle_edit_form_llp_address_change),
+                    rx.grid(
+                        _form_input("Number of Partners", "e.g. 2", PortalState.edit_form_llp_number_of_partners, PortalState.handle_edit_form_llp_number_of_partners_change),
+                        _form_input("Number of Designated Partners", "e.g. 2", PortalState.edit_form_llp_number_of_designated_partners, PortalState.handle_edit_form_llp_number_of_designated_partners_change),
+                        columns="2", spacing="3", width="100%",
+                    ),
+                    rx.grid(
+                        _form_select("Status under CIRP", ["Yes", "No"], PortalState.edit_form_llp_status_under_cirp, PortalState.handle_edit_form_llp_status_under_cirp_change),
+                        _form_select("Small LLP", ["Yes", "No"], PortalState.edit_form_llp_small_llp, PortalState.handle_edit_form_llp_small_llp_change),
+                        columns="2", spacing="3", width="100%",
+                    ),
+                    _form_date_input("Strike off / amalgamated / transferred date", PortalState.edit_form_llp_strike_off_date, PortalState.handle_edit_form_llp_strike_off_date_change),
+                    rx.cond(
+                        PortalState.edit_form_llp_error != "",
+                        rx.box(
+                            rx.hstack(
+                                rx.icon("circle-alert", size=16, color="#dc2626"),
+                                rx.text(PortalState.edit_form_llp_error, size="2", color="#dc2626"),
+                                spacing="2",
+                            ),
+                            padding="0.75rem",
+                            border_radius="0.5rem",
+                            background="#fee2e2",
+                            border_left="4px solid #dc2626",
+                            width="100%",
+                        ),
+                    ),
+                    rx.hstack(
+                        rx.button(
+                            "Cancel",
+                            on_click=PortalState.close_edit_llp_form,
+                            variant="outline",
+                            color_scheme="gray",
+                            size="3",
+                        ),
+                        rx.button(
+                            rx.hstack(rx.icon("save", size=16), rx.text("Save Changes"), spacing="2"),
+                            on_click=PortalState.save_edit_llp,
+                            loading=PortalState.is_saving,
+                            disabled=PortalState.is_saving,
+                            background="linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                            color="white",
+                            size="3",
+                        ),
+                        spacing="3",
+                        justify="end",
+                        width="100%",
+                        padding_top="0.5rem",
+                    ),
+                    spacing="4",
+                    width="100%",
+                ),
+                background="white",
+                border_radius="0.75rem",
+                padding="2rem",
+                max_width="620px",
+                width="90%",
+                max_height="90vh",
+                overflow_y="auto",
+                box_shadow="0 20px 60px rgba(0,0,0,0.3)",
+            ),
+            position="fixed",
+            top="0",
+            left="0",
+            width="100vw",
+            height="100vh",
+            background="rgba(0,0,0,0.5)",
+            z_index="1000",
+            display="flex",
+            align_items="center",
+            justify_content="center",
+        ),
+    )
+
+
+def llps_table() -> rx.Component:
+    return rx.table.root(
+        rx.table.header(
+            rx.table.row(
+                rx.table.column_header_cell("LLPIN", font_weight="700", color="white", font_size="0.95rem"),
+                rx.table.column_header_cell("LLP Name", font_weight="700", color="white", font_size="0.95rem"),
+                rx.table.column_header_cell("ROC Name", font_weight="700", color="white", font_size="0.95rem"),
+                rx.table.column_header_cell("Date of Incorp.", font_weight="700", color="white", font_size="0.95rem"),
+                rx.table.column_header_cell("Email", font_weight="700", color="white", font_size="0.95rem"),
+                rx.table.column_header_cell("Actions", font_weight="700", color="white", font_size="0.95rem"),
+            ),
+            background="linear-gradient(90deg, #667eea 0%, #764ba2 100%)",
+            padding="1rem",
+        ),
+        rx.table.body(
+            rx.foreach(
+                PortalState.llps,
+                lambda item: rx.table.row(
+                    rx.table.cell(rx.text(item["llpin"], font_weight="600", color="#1a1a1a", size="3")),
+                    rx.table.cell(rx.text(item["name"], font_weight="500", color="#333", size="3")),
+                    rx.table.cell(
+                        rx.cond(
+                            item["roc_name"] != "",
+                            rx.text(item["roc_name"], size="2", color="#333"),
+                            rx.text("-", color="#aaa", size="2"),
+                        )
+                    ),
+                    rx.table.cell(
+                        rx.cond(
+                            item["doi"] != "",
+                            rx.text(item["doi"], size="2", color="#333"),
+                            rx.text("-", color="#aaa", size="2"),
+                        )
+                    ),
+                    rx.table.cell(
+                        rx.cond(
+                            item["email"] != "",
+                            rx.link(item["email"], href=f"mailto:{item['email']}", size="2", color="#667eea"),
+                            rx.text("-", color="#aaa", size="2"),
+                        )
+                    ),
+                    rx.table.cell(
+                        rx.hstack(
+                            rx.button(
+                                rx.icon("users", size=14),
+                                on_click=PortalState.open_manage_llp_partners(item["id"]),
+                                color_scheme="violet",
+                                variant="ghost",
+                                size="1",
+                            ),
+                            rx.button(
+                                rx.icon("link", size=14),
+                                on_click=PortalState.open_manage_llp_companies(item["id"]),
+                                color_scheme="grass",
+                                variant="ghost",
+                                size="1",
+                            ),
+                            rx.cond(
+                                (PortalState.role == "ADMIN") | (PortalState.role == "EDITOR"),
+                                rx.button(
+                                    rx.icon("pencil", size=14),
+                                    on_click=PortalState.open_edit_llp_form(item["id"]),
+                                    color_scheme="blue",
+                                    variant="ghost",
+                                    size="1",
+                                ),
+                            ),
+                            rx.cond(
+                                PortalState.role == "ADMIN",
+                                rx.dialog.root(
+                                    rx.dialog.trigger(
+                                        rx.button(
+                                            rx.icon("trash-2", size=14),
+                                            color_scheme="red",
+                                            variant="ghost",
+                                            size="1",
+                                        ),
+                                    ),
+                                    rx.dialog.content(
+                                        rx.vstack(
+                                            rx.hstack(
+                                                rx.icon("triangle-alert", size=22, color="#dc2626"),
+                                                rx.dialog.title("Delete LLP", size="5", weight="bold", color="#1a1a1a"),
+                                                spacing="2",
+                                                align_items="center",
+                                            ),
+                                            rx.divider(),
+                                            rx.dialog.description(
+                                                rx.vstack(
+                                                    rx.text(
+                                                        "Are you sure you want to permanently delete this LLP? This action cannot be undone.",
+                                                        size="3",
+                                                        color="#333",
+                                                    ),
+                                                    rx.box(
+                                                        rx.hstack(
+                                                            rx.text("LLPIN:", size="2", weight="bold", color="#555"),
+                                                            rx.text(item["llpin"], size="2", color="#1a1a1a"),
+                                                            spacing="2",
+                                                        ),
+                                                        rx.hstack(
+                                                            rx.text("Name:", size="2", weight="bold", color="#555"),
+                                                            rx.text(item["name"], size="2", color="#1a1a1a"),
+                                                            spacing="2",
+                                                        ),
+                                                        padding="0.75rem",
+                                                        background="#f5f5f5",
+                                                        border_radius="0.5rem",
+                                                        border_left="3px solid #dc2626",
+                                                        width="100%",
+                                                    ),
+                                                    spacing="3",
+                                                    width="100%",
+                                                ),
+                                            ),
+                                            rx.hstack(
+                                                rx.dialog.close(
+                                                    rx.button("Cancel", variant="outline", color_scheme="gray", size="3"),
+                                                ),
+                                                rx.dialog.close(
+                                                    rx.button(
+                                                        rx.hstack(rx.icon("trash-2", size=16), rx.text("Delete"), spacing="2"),
+                                                        on_click=PortalState.confirm_delete_llp(item["id"]),
+                                                        color_scheme="red",
+                                                        size="3",
+                                                    ),
+                                                ),
+                                                spacing="3",
+                                                justify="end",
+                                                width="100%",
+                                                padding_top="0.5rem",
+                                            ),
+                                            spacing="4",
+                                            width="100%",
+                                        ),
+                                        max_width="420px",
+                                        background="white",
+                                    ),
+                                ),
+                            ),
+                            spacing="1",
+                        )
+                    ),
+                    _hover={"background": "rgba(102,126,234,0.04)"},
+                    border_bottom="1px solid #f0f0f0",
+                    padding="1rem",
+                ),
+            )
+        ),
+        width="100%",
+        size="3",
+    )
+
+
+def llps_section() -> rx.Component:
+    return rx.vstack(
+        rx.card(
+            rx.vstack(
+                rx.hstack(
+                    rx.icon("building", size=22, color="#667eea"),
+                    rx.vstack(
+                        rx.heading("LLP Registry", size="5", color="#1a1a1a"),
+                        rx.text(f"{PortalState.llps.length()} LLPs", size="1", color="#999"),
+                        spacing="1",
+                    ),
+                    rx.spacer(),
+                    rx.cond(
+                        (PortalState.role == "ADMIN") | (PortalState.role == "EDITOR"),
+                        rx.button(
+                            rx.hstack(rx.icon("building", size=16), rx.text("Add LLP"), spacing="2"),
+                            on_click=PortalState.open_add_llp_form,
+                            background="linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                            color="white",
+                            size="2",
+                        ),
+                    ),
+                    width="100%",
+                    align_items="center",
+                ),
+                rx.hstack(
+                    rx.el.input(
+                        placeholder="Search by LLPIN or LLP name…",
+                        value=PortalState.llps_search_query,
+                        on_change=PortalState.handle_llps_search,
+                        style={
+                            "flex": "1",
+                            "padding": "0.6rem 0.875rem",
+                            "border_radius": "0.5rem",
+                            "border": "1.5px solid #d0d0d0",
+                            "background_color": "white",
+                            "font_size": "0.9rem",
+                            "color": "#1a1a1a",
+                            "outline": "none",
+                            "box_sizing": "border-box",
+                        },
+                    ),
+                    width="100%",
+                    align_items="center",
+                ),
+                llps_table(),
+                spacing="4",
+                width="100%",
+            ),
+            width="100%",
+            padding="2rem",
+            background="white",
+            border_radius="0.75rem",
+            box_shadow="0 4px 16px rgba(0,0,0,0.08)",
+        ),
+        spacing="5",
+        padding="2rem",
+        width="100%",
+    )
+
+
+def manage_llp_partners_dialog() -> rx.Component:
+    return rx.cond(
+        PortalState.show_manage_llp_partners,
+        rx.box(
+            rx.box(
+                rx.vstack(
+                    rx.hstack(
+                        rx.icon("users", size=22, color="#667eea"),
+                        rx.vstack(
+                            rx.heading("Manage Designated Partners", size="5", color="#1a1a1a", weight="bold"),
+                            rx.text(PortalState.managing_llp_name, size="2", color="#667eea", weight="medium"),
+                            spacing="0",
+                        ),
+                        rx.spacer(),
+                        rx.button(
+                            rx.icon("x", size=18),
+                            on_click=PortalState.close_manage_llp_partners,
+                            variant="ghost",
+                            size="1",
+                        ),
+                        width="100%",
+                        align_items="center",
+                    ),
+                    rx.divider(),
+                    rx.vstack(
+                        rx.text("Designated Partners", size="3", weight="bold", color="#1a1a1a"),
+                        rx.cond(
+                            PortalState.llp_partners.length() == 0,
+                            rx.text("No designated partners yet.", size="2", color="#aaa"),
+                            rx.box(
+                                rx.table.root(
+                                    rx.table.header(
+                                        rx.table.row(
+                                            rx.table.column_header_cell("DIN", font_weight="700", color="white", font_size="0.85rem"),
+                                            rx.table.column_header_cell("Name", font_weight="700", color="white", font_size="0.85rem"),
+                                            rx.table.column_header_cell("Designation", font_weight="700", color="white", font_size="0.85rem"),
+                                            rx.table.column_header_cell("Appointed", font_weight="700", color="white", font_size="0.85rem"),
+                                            rx.table.column_header_cell("Cessation", font_weight="700", color="white", font_size="0.85rem"),
+                                            rx.table.column_header_cell("Signatory", font_weight="700", color="white", font_size="0.85rem"),
+                                            rx.table.column_header_cell("", font_weight="700", color="white"),
+                                        ),
+                                        background="linear-gradient(90deg, #667eea 0%, #764ba2 100%)",
+                                    ),
+                                    rx.table.body(
+                                        rx.foreach(
+                                            PortalState.llp_partners,
+                                            lambda d: rx.table.row(
+                                                rx.table.cell(rx.text(d["din"], size="2", font_weight="600", color="#1a1a1a", white_space="nowrap")),
+                                                rx.table.cell(rx.text(d["name"], size="2", color="#1a1a1a", white_space="nowrap")),
+                                                rx.table.cell(
+                                                    rx.cond(
+                                                        d["designation"] != "",
+                                                        rx.text(d["designation"], size="2", color="#1a1a1a", white_space="nowrap"),
+                                                        rx.text("-", size="2", color="#aaa"),
+                                                    )
+                                                ),
+                                                rx.table.cell(
+                                                    rx.cond(
+                                                        d["appointment_date"] != "",
+                                                        rx.text(d["appointment_date"], size="2", color="#1a1a1a", white_space="nowrap"),
+                                                        rx.text("-", size="2", color="#aaa"),
+                                                    )
+                                                ),
+                                                rx.table.cell(
+                                                    rx.cond(
+                                                        d["cessation_date"] != "",
+                                                        rx.text(d["cessation_date"], size="2", color="#1a1a1a", white_space="nowrap"),
+                                                        rx.text("-", size="2", color="#aaa"),
+                                                    )
+                                                ),
+                                                rx.table.cell(
+                                                    rx.cond(
+                                                        d["is_signatory"] != "",
+                                                        rx.text(d["is_signatory"], size="2", color="#1a1a1a"),
+                                                        rx.text("-", size="2", color="#aaa"),
+                                                    )
+                                                ),
+                                                rx.table.cell(
+                                                    rx.cond(
+                                                        (PortalState.role == "ADMIN") | (PortalState.role == "EDITOR"),
+                                                        rx.cond(
+                                                            PortalState.confirm_remove_llp_partner_id == d["assoc_id"],
+                                                            rx.hstack(
+                                                                rx.text("Remove?", size="1", color="#dc2626", weight="bold"),
+                                                                rx.button(
+                                                                    "Yes",
+                                                                    on_click=PortalState.remove_director_from_llp(d["assoc_id"]),
+                                                                    color_scheme="red",
+                                                                    size="1",
+                                                                ),
+                                                                rx.button(
+                                                                    "No",
+                                                                    on_click=PortalState.cancel_remove_llp_partner,
+                                                                    variant="outline",
+                                                                    size="1",
+                                                                ),
+                                                                spacing="1",
+                                                                align_items="center",
+                                                            ),
+                                                            rx.hstack(
+                                                                rx.button(
+                                                                    rx.icon("pencil", size=12),
+                                                                    on_click=PortalState.start_edit_llp_partner(d["assoc_id"]),
+                                                                    color_scheme="blue",
+                                                                    variant="ghost",
+                                                                    size="1",
+                                                                ),
+                                                                rx.button(
+                                                                    rx.icon("x", size=12),
+                                                                    on_click=PortalState.prompt_remove_llp_partner(d["assoc_id"]),
+                                                                    color_scheme="red",
+                                                                    variant="ghost",
+                                                                    size="1",
+                                                                ),
+                                                                spacing="1",
+                                                            ),
+                                                        ),
+                                                    )
+                                                ),
+                                                border_bottom="1px solid #f0f0f0",
+                                            ),
+                                        )
+                                    ),
+                                    width="100%",
+                                    size="2",
+                                ),
+                                width="100%",
+                                overflow_x="auto",
+                            ),
+                        ),
+                        spacing="2",
+                        width="100%",
+                    ),
+                    rx.cond(
+                        (PortalState.role == "ADMIN") | (PortalState.role == "EDITOR"),
+                        rx.vstack(
+                            rx.divider(),
+                            rx.cond(
+                                PortalState.llp_partner_editing_id != "",
+                                rx.text("Edit Designated Partner", size="2", weight="bold", color="#333"),
+                                rx.text("Add Designated Partner", size="2", weight="bold", color="#333"),
+                            ),
+                            rx.cond(
+                                PortalState.llp_partner_editing_id == "",
+                                rx.vstack(
+                                    rx.el.input(
+                                        placeholder="Search director by DIN or name…",
+                                        value=PortalState.llp_partner_search_query,
+                                        on_change=PortalState.handle_llp_partner_search,
+                                        type="text",
+                                        style={
+                                            "width": "100%",
+                                            "padding": "0.625rem 0.875rem",
+                                            "border_radius": "0.5rem",
+                                            "border": "2px solid #d0d0d0",
+                                            "background_color": "white",
+                                            "font_size": "0.95rem",
+                                            "color": "black",
+                                            "outline": "none",
+                                            "box_sizing": "border-box",
+                                        },
+                                    ),
+                                    rx.cond(
+                                        PortalState.llp_partner_search_results.length() > 0,
+                                        rx.box(
+                                            rx.foreach(
+                                                PortalState.llp_partner_search_results,
+                                                lambda r: rx.box(
+                                                    rx.hstack(
+                                                        rx.text(r["din"], size="2", font_weight="600", color="#667eea"),
+                                                        rx.text(r["name"], size="2", color="#333"),
+                                                        spacing="2",
+                                                    ),
+                                                    padding="0.5rem 0.75rem",
+                                                    cursor="pointer",
+                                                    border_bottom="1px solid #f0f0f0",
+                                                    _hover={"background": "#f0f4ff"},
+                                                    on_click=PortalState.select_director_for_llp_partner(r["id"]),
+                                                ),
+                                            ),
+                                            border="1.5px solid #d0d0d0",
+                                            border_radius="0.5rem",
+                                            background="white",
+                                            width="100%",
+                                            max_height="180px",
+                                            overflow_y="auto",
+                                        ),
+                                    ),
+                                    spacing="2",
+                                    width="100%",
+                                ),
+                            ),
+                            rx.cond(
+                                PortalState.llp_partner_selected_director_name != "",
+                                rx.box(
+                                    rx.hstack(
+                                        rx.icon("circle-check", size=16, color="#16a34a"),
+                                        rx.text(PortalState.llp_partner_selected_director_name, size="2", color="#166534"),
+                                        spacing="2",
+                                    ),
+                                    padding="0.5rem 0.75rem",
+                                    background="#dcfce7",
+                                    border_radius="0.5rem",
+                                    border_left="3px solid #16a34a",
+                                    width="100%",
+                                ),
+                            ),
+                            rx.grid(
+                                _form_input("Designation", "e.g. Designated Partner", PortalState.llp_partner_designation, PortalState.handle_llp_partner_designation_change),
+                                _form_select("Signatory", ["Yes", "No"], PortalState.llp_partner_is_signatory, PortalState.handle_llp_partner_is_signatory_change),
+                                columns="2", spacing="3", width="100%",
+                            ),
+                            rx.grid(
+                                _form_date_input("Date of Appointment", PortalState.llp_partner_appointment_date, PortalState.handle_llp_partner_appointment_date_change),
+                                _form_date_input("Cessation Date (if applicable)", PortalState.llp_partner_cessation_date, PortalState.handle_llp_partner_cessation_date_change),
+                                columns="2", spacing="3", width="100%",
+                            ),
+                            rx.hstack(
+                                rx.spacer(),
+                                rx.cond(
+                                    PortalState.llp_partner_editing_id != "",
+                                    rx.button(
+                                        "Cancel",
+                                        on_click=PortalState.cancel_edit_llp_partner,
+                                        variant="outline",
+                                        color_scheme="gray",
+                                        size="3",
+                                    ),
+                                ),
+                                rx.cond(
+                                    PortalState.llp_partner_editing_id != "",
+                                    rx.button(
+                                        rx.hstack(rx.icon("save", size=16), rx.text("Save Changes"), spacing="2"),
+                                        on_click=PortalState.add_director_to_llp,
+                                        loading=PortalState.is_saving,
+                                        disabled=PortalState.is_saving,
+                                        background="linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                                        color="white",
+                                        size="3",
+                                    ),
+                                    rx.button(
+                                        rx.hstack(rx.icon("user-round-plus", size=16), rx.text("Add Partner"), spacing="2"),
+                                        on_click=PortalState.add_director_to_llp,
+                                        loading=PortalState.is_saving,
+                                        disabled=PortalState.is_saving,
+                                        background="linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                                        color="white",
+                                        size="3",
+                                    ),
+                                ),
+                                width="100%",
+                                spacing="2",
+                            ),
+                            rx.cond(
+                                PortalState.llp_partner_error != "",
+                                rx.box(
+                                    rx.hstack(
+                                        rx.icon("circle-alert", size=16, color="#dc2626"),
+                                        rx.text(PortalState.llp_partner_error, size="2", color="#dc2626"),
+                                        spacing="2",
+                                    ),
+                                    padding="0.75rem",
+                                    border_radius="0.5rem",
+                                    background="#fee2e2",
+                                    border_left="4px solid #dc2626",
+                                    width="100%",
+                                ),
+                            ),
+                            spacing="3",
+                            width="100%",
+                        ),
+                    ),
+                    rx.hstack(
+                        rx.spacer(),
+                        rx.button(
+                            "Close",
+                            on_click=PortalState.close_manage_llp_partners,
+                            variant="outline",
+                            color_scheme="gray",
+                            size="3",
+                        ),
+                        width="100%",
+                        padding_top="0.5rem",
+                    ),
+                    spacing="4",
+                    width="100%",
+                ),
+                background="white",
+                border_radius="0.75rem",
+                padding="2rem",
+                max_width="820px",
+                width="90%",
+                max_height="90vh",
+                overflow_y="auto",
+                box_shadow="0 20px 60px rgba(0,0,0,0.3)",
+            ),
+            position="fixed",
+            top="0",
+            left="0",
+            width="100vw",
+            height="100vh",
+            background="rgba(0,0,0,0.5)",
+            z_index="1000",
+            display="flex",
+            align_items="center",
+            justify_content="center",
+        ),
+    )
+
+
+def manage_llp_companies_dialog() -> rx.Component:
+    return rx.cond(
+        PortalState.show_manage_llp_companies,
+        rx.box(
+            rx.box(
+                rx.vstack(
+                    rx.hstack(
+                        rx.icon("link", size=22, color="#667eea"),
+                        rx.vstack(
+                            rx.heading("Linked Companies", size="5", color="#1a1a1a", weight="bold"),
+                            rx.text(PortalState.managing_llp_name, size="2", color="#667eea", weight="medium"),
+                            spacing="0",
+                        ),
+                        rx.spacer(),
+                        rx.button(
+                            rx.icon("x", size=18),
+                            on_click=PortalState.close_manage_llp_companies,
+                            variant="ghost",
+                            size="1",
+                        ),
+                        width="100%",
+                        align_items="center",
+                    ),
+                    rx.divider(),
+                    rx.vstack(
+                        rx.text("Linked Companies", size="3", weight="bold", color="#1a1a1a"),
+                        rx.cond(
+                            PortalState.llp_companies.length() == 0,
+                            rx.text("No companies linked yet.", size="2", color="#aaa"),
+                            rx.table.root(
+                                rx.table.header(
+                                    rx.table.row(
+                                        rx.table.column_header_cell("CIN", font_weight="700", color="white", font_size="0.85rem"),
+                                        rx.table.column_header_cell("Company Name", font_weight="700", color="white", font_size="0.85rem"),
+                                        rx.table.column_header_cell("Relationship", font_weight="700", color="white", font_size="0.85rem"),
+                                        rx.table.column_header_cell("", font_weight="700", color="white"),
+                                    ),
+                                    background="linear-gradient(90deg, #667eea 0%, #764ba2 100%)",
+                                ),
+                                rx.table.body(
+                                    rx.foreach(
+                                        PortalState.llp_companies,
+                                        lambda c: rx.table.row(
+                                            rx.table.cell(rx.text(c["cin"], size="2", font_weight="600", color="#1a1a1a")),
+                                            rx.table.cell(rx.text(c["name"], size="2", color="#1a1a1a")),
+                                            rx.table.cell(
+                                                rx.cond(
+                                                    c["relationship_note"] != "",
+                                                    rx.text(c["relationship_note"], size="2", color="#1a1a1a"),
+                                                    rx.text("-", size="2", color="#aaa"),
+                                                )
+                                            ),
+                                            rx.table.cell(
+                                                rx.cond(
+                                                    (PortalState.role == "ADMIN") | (PortalState.role == "EDITOR"),
+                                                    rx.cond(
+                                                        PortalState.confirm_remove_llp_company_id == c["link_id"],
+                                                        rx.hstack(
+                                                            rx.text("Remove?", size="1", color="#dc2626", weight="bold"),
+                                                            rx.button(
+                                                                "Yes",
+                                                                on_click=PortalState.remove_company_from_llp(c["link_id"]),
+                                                                color_scheme="red",
+                                                                size="1",
+                                                            ),
+                                                            rx.button(
+                                                                "No",
+                                                                on_click=PortalState.cancel_remove_llp_company,
+                                                                variant="outline",
+                                                                size="1",
+                                                            ),
+                                                            spacing="1",
+                                                            align_items="center",
+                                                        ),
+                                                        rx.button(
+                                                            rx.icon("x", size=12),
+                                                            on_click=PortalState.prompt_remove_llp_company(c["link_id"]),
+                                                            color_scheme="red",
+                                                            variant="ghost",
+                                                            size="1",
+                                                        ),
+                                                    ),
+                                                )
+                                            ),
+                                            border_bottom="1px solid #f0f0f0",
+                                        ),
+                                    )
+                                ),
+                                width="100%",
+                                size="2",
+                            ),
+                        ),
+                        spacing="2",
+                        width="100%",
+                    ),
+                    rx.cond(
+                        (PortalState.role == "ADMIN") | (PortalState.role == "EDITOR"),
+                        rx.vstack(
+                            rx.divider(),
+                            rx.text("Link a Company", size="2", weight="bold", color="#333"),
+                            rx.vstack(
+                                rx.el.input(
+                                    placeholder="Search company by CIN or name…",
+                                    value=PortalState.llp_company_search_query,
+                                    on_change=PortalState.handle_llp_company_search,
+                                    type="text",
+                                    style={
+                                        "width": "100%",
+                                        "padding": "0.625rem 0.875rem",
+                                        "border_radius": "0.5rem",
+                                        "border": "2px solid #d0d0d0",
+                                        "background_color": "white",
+                                        "font_size": "0.95rem",
+                                        "color": "black",
+                                        "outline": "none",
+                                        "box_sizing": "border-box",
+                                    },
+                                ),
+                                rx.cond(
+                                    PortalState.llp_company_search_results.length() > 0,
+                                    rx.box(
+                                        rx.foreach(
+                                            PortalState.llp_company_search_results,
+                                            lambda r: rx.box(
+                                                rx.hstack(
+                                                    rx.text(r["cin"], size="2", font_weight="600", color="#667eea"),
+                                                    rx.text(r["name"], size="2", color="#333"),
+                                                    spacing="2",
+                                                ),
+                                                padding="0.5rem 0.75rem",
+                                                cursor="pointer",
+                                                border_bottom="1px solid #f0f0f0",
+                                                _hover={"background": "#f0f4ff"},
+                                                on_click=PortalState.select_company_for_llp(r["id"]),
+                                            ),
+                                        ),
+                                        border="1.5px solid #d0d0d0",
+                                        border_radius="0.5rem",
+                                        background="white",
+                                        width="100%",
+                                        max_height="180px",
+                                        overflow_y="auto",
+                                    ),
+                                ),
+                                rx.cond(
+                                    PortalState.llp_company_selected_name != "",
+                                    rx.box(
+                                        rx.hstack(
+                                            rx.icon("circle-check", size=16, color="#16a34a"),
+                                            rx.text(PortalState.llp_company_selected_name, size="2", color="#166534"),
+                                            spacing="2",
+                                        ),
+                                        padding="0.5rem 0.75rem",
+                                        background="#dcfce7",
+                                        border_radius="0.5rem",
+                                        border_left="3px solid #16a34a",
+                                        width="100%",
+                                    ),
+                                ),
+                                spacing="2",
+                                width="100%",
+                            ),
+                            rx.hstack(
+                                rx.vstack(
+                                    rx.text("Relationship (optional)", size="2", weight="bold", color="#333"),
+                                    rx.el.input(
+                                        placeholder="e.g. Subsidiary, Group entity",
+                                        value=PortalState.llp_company_relationship_note,
+                                        on_change=PortalState.handle_llp_company_relationship_note_change,
+                                        type="text",
+                                        style={
+                                            "width": "100%",
+                                            "padding": "0.625rem 0.875rem",
+                                            "border_radius": "0.5rem",
+                                            "border": "2px solid #d0d0d0",
+                                            "background_color": "white",
+                                            "font_size": "0.95rem",
+                                            "color": "black",
+                                            "outline": "none",
+                                            "box_sizing": "border-box",
+                                        },
+                                    ),
+                                    spacing="1",
+                                    width="100%",
+                                ),
+                                rx.spacer(),
+                                rx.button(
+                                    rx.hstack(rx.icon("link", size=16), rx.text("Link Company"), spacing="2"),
+                                    on_click=PortalState.link_company_to_llp,
+                                    loading=PortalState.is_saving,
+                                    disabled=PortalState.is_saving,
+                                    background="linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                                    color="white",
+                                    size="3",
+                                    align_self="flex-end",
+                                ),
+                                width="100%",
+                                align_items="flex-end",
+                            ),
+                            rx.cond(
+                                PortalState.llp_company_error != "",
+                                rx.box(
+                                    rx.hstack(
+                                        rx.icon("circle-alert", size=16, color="#dc2626"),
+                                        rx.text(PortalState.llp_company_error, size="2", color="#dc2626"),
+                                        spacing="2",
+                                    ),
+                                    padding="0.75rem",
+                                    border_radius="0.5rem",
+                                    background="#fee2e2",
+                                    border_left="4px solid #dc2626",
+                                    width="100%",
+                                ),
+                            ),
+                            spacing="3",
+                            width="100%",
+                        ),
+                    ),
+                    rx.hstack(
+                        rx.spacer(),
+                        rx.button(
+                            "Close",
+                            on_click=PortalState.close_manage_llp_companies,
+                            variant="outline",
+                            color_scheme="gray",
+                            size="3",
+                        ),
+                        width="100%",
+                        padding_top="0.5rem",
+                    ),
+                    spacing="4",
+                    width="100%",
+                ),
+                background="white",
+                border_radius="0.75rem",
+                padding="2rem",
+                max_width="640px",
+                width="90%",
+                max_height="90vh",
+                overflow_y="auto",
+                box_shadow="0 20px 60px rgba(0,0,0,0.3)",
+            ),
+            position="fixed",
+            top="0",
+            left="0",
+            width="100vw",
+            height="100vh",
+            background="rgba(0,0,0,0.5)",
+            z_index="1000",
+            display="flex",
+            align_items="center",
+            justify_content="center",
+        ),
+    )
+
+
 def admin_panel() -> rx.Component:
     return rx.vstack(
         rx.card(
@@ -3802,6 +5669,16 @@ def dashboard_page() -> rx.Component:
                         border_radius="0.5rem",
                         _hover={"background": "rgba(255,255,255,0.15)", "color": "white"},
                     ),
+                    rx.button(
+                        rx.hstack(rx.icon("building", size=15), rx.text("LLPs"), spacing="2"),
+                        on_click=PortalState.switch_tab("llps"),
+                        variant="ghost",
+                        size="2",
+                        color=rx.cond(PortalState.active_tab == "llps", "white", "rgba(255,255,255,0.65)"),
+                        background=rx.cond(PortalState.active_tab == "llps", "rgba(255,255,255,0.22)", "transparent"),
+                        border_radius="0.5rem",
+                        _hover={"background": "rgba(255,255,255,0.15)", "color": "white"},
+                    ),
                     rx.cond(
                         PortalState.role == "ADMIN",
                         rx.button(
@@ -3853,7 +5730,11 @@ def dashboard_page() -> rx.Component:
                 rx.cond(
                     PortalState.active_tab == "directors",
                     directors_section(),
-                    admin_panel(),
+                    rx.cond(
+                        PortalState.active_tab == "llps",
+                        llps_section(),
+                        admin_panel(),
+                    ),
                 ),
             ),
             spacing="0",
@@ -3865,6 +5746,10 @@ def dashboard_page() -> rx.Component:
         add_director_dialog(),
         edit_director_dialog(),
         manage_company_directors_dialog(),
+        add_llp_dialog(),
+        edit_llp_dialog(),
+        manage_llp_partners_dialog(),
+        manage_llp_companies_dialog(),
         add_user_dialog(),
         edit_user_dialog(),
         background="#f5f7fa",

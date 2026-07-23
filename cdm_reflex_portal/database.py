@@ -90,6 +90,49 @@ class CompanyDirector(Base):
     cessation_date: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
 
+class LLP(Base):
+    __tablename__ = "llps"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    llpin: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(140), nullable=False)
+    status: Mapped[str] = mapped_column(String(40), default="active", nullable=False)
+    updated_at: Mapped[str] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    roc_name: Mapped[str | None] = mapped_column(String(140), nullable=True)
+    date_of_incorporation: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    number_of_partners: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    number_of_designated_partners: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    total_obligation_of_contribution: Mapped[float | None] = mapped_column(Float, nullable=True)
+    strike_off_date: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    status_under_cirp: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    small_llp: Mapped[str | None] = mapped_column(String(10), nullable=True)
+
+
+class LLPDirector(Base):
+    __tablename__ = "llp_directors"
+    __table_args__ = (UniqueConstraint("llp_id", "director_id", name="uq_llp_director"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    llp_id: Mapped[int] = mapped_column(nullable=False)
+    director_id: Mapped[int] = mapped_column(nullable=False)
+    designation: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    appointment_date: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    cessation_date: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    is_signatory: Mapped[str | None] = mapped_column(String(10), nullable=True)
+
+
+class CompanyLLP(Base):
+    __tablename__ = "company_llps"
+    __table_args__ = (UniqueConstraint("company_id", "llp_id", name="uq_company_llp"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    company_id: Mapped[int] = mapped_column(nullable=False)
+    llp_id: Mapped[int] = mapped_column(nullable=False)
+    relationship_note: Mapped[str | None] = mapped_column(String(140), nullable=True)
+
+
 def hash_password(value: str) -> str:
     return bcrypt.hashpw(value.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
