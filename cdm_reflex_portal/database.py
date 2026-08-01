@@ -3,8 +3,24 @@ from __future__ import annotations
 from pathlib import Path
 
 import bcrypt
-from sqlalchemy import DateTime, Float, String, Text, UniqueConstraint, create_engine, func, text
+from sqlalchemy import Boolean, DateTime, Float, String, Text, UniqueConstraint, create_engine, func, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
+
+
+def _normalize_bool_flag(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return bool(int(value))
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "y", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "n", "off", ""}:
+            return False
+    return bool(value)
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 DATA_DIR.mkdir(exist_ok=True)
@@ -35,6 +51,7 @@ class Company(Base):
     name: Mapped[str] = mapped_column(String(140), nullable=False)
     company_type: Mapped[str] = mapped_column(String(80), nullable=False)
     company_class: Mapped[str] = mapped_column(String(120), nullable=False)
+    non_client: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("0"), default=False)
     sub_category: Mapped[str | None] = mapped_column(String(120), nullable=True)
     status: Mapped[str] = mapped_column(String(40), default="active", nullable=False)
     city: Mapped[str | None] = mapped_column(String(100), nullable=True)
@@ -97,6 +114,7 @@ class LLP(Base):
     llpin: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(140), nullable=False)
     status: Mapped[str] = mapped_column(String(40), default="active", nullable=False)
+    non_client: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("0"), default=False)
     updated_at: Mapped[str] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
     roc_name: Mapped[str | None] = mapped_column(String(140), nullable=True)
     date_of_incorporation: Mapped[str | None] = mapped_column(String(20), nullable=True)
@@ -148,6 +166,7 @@ def init_db() -> None:
         cols = [row[1] for row in conn.execute(text("PRAGMA table_info(companies)")).fetchall()]
         migrations = [
             ("sub_category", "ALTER TABLE companies ADD COLUMN sub_category VARCHAR(120)"),
+            ("non_client", "ALTER TABLE companies ADD COLUMN non_client BOOLEAN NOT NULL DEFAULT 0"),
             ("date_of_incorporation", "ALTER TABLE companies ADD COLUMN date_of_incorporation VARCHAR(20)"),
             ("email", "ALTER TABLE companies ADD COLUMN email VARCHAR(254)"),
             ("address", "ALTER TABLE companies ADD COLUMN address TEXT"),
@@ -171,6 +190,12 @@ def init_db() -> None:
             if col_name not in cols:
                 conn.execute(text(ddl))
                 conn.commit()
+        for row in conn.execute(text("SELECT id, non_client FROM companies")).fetchall():
+            conn.execute(
+                text("UPDATE companies SET non_client = :value WHERE id = :company_id"),
+                {"value": int(_normalize_bool_flag(row[1])), "company_id": row[0]},
+            )
+        conn.commit()
         cd_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(company_directors)")).fetchall()]
         cd_migrations = [
             ("designation", "ALTER TABLE company_directors ADD COLUMN designation VARCHAR(60)"),
@@ -181,6 +206,15 @@ def init_db() -> None:
         ]
         for col_name, ddl in cd_migrations:
             if col_name not in cd_cols:
+                conn.execute(text(ddl))
+                conn.commit()
+        # Migrate: add non_client to llps table when missing
+        llp_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(llps)")).fetchall()]
+        llp_migrations = [
+            ("non_client", "ALTER TABLE llps ADD COLUMN non_client BOOLEAN NOT NULL DEFAULT 0"),
+        ]
+        for col_name, ddl in llp_migrations:
+            if col_name not in llp_cols:
                 conn.execute(text(ddl))
                 conn.commit()
     with SessionLocal() as session:

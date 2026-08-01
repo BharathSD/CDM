@@ -131,6 +131,7 @@ export function DashboardPage({ auth }: DashboardPageProps) {
                   <tr>
                     <th>CIN</th>
                     <th>Name</th>
+                    <th>Non Client</th>
                     <th>Type</th>
                     <th>Class</th>
                     <th>Status</th>
@@ -144,6 +145,7 @@ export function DashboardPage({ auth }: DashboardPageProps) {
                     <tr key={company.id}>
                       <td>{company.cin}</td>
                       <td>{company.name}</td>
+                      <td>{company.nonClient ? "Yes" : "No"}</td>
                       <td>{company.type}</td>
                       <td>{company.companyClass}</td>
                       <td>{company.status}</td>

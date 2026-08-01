@@ -14,6 +14,7 @@ export type Company = {
   name: string;
   type: string;
   companyClass: string;
+  nonClient?: boolean;
   status: string;
   registrationDate?: string | null;
   contactEmail?: string | null;

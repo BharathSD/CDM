@@ -13,11 +13,37 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+function normalizeBoolean(value: unknown): boolean {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number") {
+    return value !== 0;
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["1", "true", "yes", "y", "on"].includes(normalized)) {
+      return true;
+    }
+    if (["0", "false", "no", "n", "off", ""].includes(normalized)) {
+      return false;
+    }
+  }
+  return Boolean(value);
+}
+
+const booleanLikeSchema = z.union([
+  z.boolean(),
+  z.number().int().min(0).max(1),
+  z.string(),
+]).transform((value) => normalizeBoolean(value));
+
 const companySchema = z.object({
   cin: z.string().min(5).max(32),
   name: z.string().min(2).max(120),
   type: z.string().min(2).max(80),
   companyClass: z.string().min(2).max(120),
+  nonClient: booleanLikeSchema.default(false),
   status: z.string().min(2).max(50).default("active"),
   registrationDate: z.string().datetime().optional().nullable(),
   contactEmail: z.string().email().optional().nullable(),

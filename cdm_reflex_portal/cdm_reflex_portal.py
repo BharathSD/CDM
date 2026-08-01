@@ -71,6 +71,7 @@ class PortalState(rx.State):
     # ── Add-company form ──────────────────────────────────────────────────────
     show_add_form: bool = False
     is_saving: bool = False
+    is_non_client: bool = False
     form_cin: str = ""
     form_name: str = ""
     form_class: str = ""
@@ -99,6 +100,7 @@ class PortalState(rx.State):
 
     # ── Edit-company form ─────────────────────────────────────────────────────
     show_edit_company_form: bool = False
+    is_edit_form_non_client: bool = False
     edit_company_id: str = ""
     edit_form_cin: str = ""
     edit_form_name: str = ""
@@ -168,6 +170,7 @@ class PortalState(rx.State):
     llps: list[dict] = []
 
     show_add_llp_form: bool = False
+    form_llp_is_non_client: bool = False
     form_llpin: str = ""
     form_llp_name: str = ""
     form_llp_roc_name: str = ""
@@ -183,6 +186,7 @@ class PortalState(rx.State):
     form_llp_error: str = ""
 
     show_edit_llp_form: bool = False
+    edit_form_llp_is_non_client: bool = False
     edit_llp_id: str = ""
     edit_form_llpin: str = ""
     edit_form_llp_name: str = ""
@@ -247,6 +251,7 @@ class PortalState(rx.State):
         """Reset every company-form var to its default."""
         self.show_add_form = False
         self.is_saving = False
+        self.is_non_client = False
         self.form_cin = ""
         self.form_name = ""
         self.form_class = ""
@@ -274,6 +279,7 @@ class PortalState(rx.State):
     def _clear_edit_company_form(self) -> None:
         """Reset every edit-company-form var to its default."""
         self.show_edit_company_form = False
+        self.is_edit_form_non_client = False
         self.edit_company_id = ""
         self.edit_form_cin = ""
         self.edit_form_name = ""
@@ -357,6 +363,7 @@ class PortalState(rx.State):
     def _clear_llp_form(self) -> None:
         """Reset every LLP-form var to its default."""
         self.show_add_llp_form = False
+        self.form_llp_is_non_client = False
         self.form_llpin = ""
         self.form_llp_name = ""
         self.form_llp_roc_name = ""
@@ -374,6 +381,7 @@ class PortalState(rx.State):
     def _clear_edit_llp_form(self) -> None:
         """Reset every edit-LLP-form var to its default."""
         self.show_edit_llp_form = False
+        self.edit_form_llp_is_non_client = False
         self.edit_llp_id = ""
         self.edit_form_llpin = ""
         self.edit_form_llp_name = ""
@@ -676,6 +684,7 @@ class PortalState(rx.State):
                     "id": str(r.id),
                     "cin": r.cin,
                     "name": r.name,
+                    "non_client": bool(r.non_client),
                     "class": r.company_class or "-",
                     "category": r.company_type or "-",
                     "sub_category": r.sub_category or "-",
@@ -718,7 +727,18 @@ class PortalState(rx.State):
         self.load_companies()
 
     # ── Add-company form handlers ─────────────────────────────────────────────
+    def handle_form_is_non_client_change(self, value: bool):
+        self.is_non_client = value
 
+    def handle_edit_form_is_non_client_change(self, value: bool):
+        self.is_edit_form_non_client = value
+
+    def handle_llp_is_non_client_change(self, value: bool):
+            self.form_llp_is_non_client = value
+
+    def handle_edit_llp_is_non_client_change(self, value: bool):
+            self.edit_form_llp_is_non_client = value
+           
     def handle_form_cin_change(self, value: str):
         if self.show_add_form:
             self.form_cin = value
@@ -751,6 +771,7 @@ class PortalState(rx.State):
         self.edit_company_id = company_id
         for c in self.companies:
             if c["id"] == company_id:
+                self.is_edit_form_non_client = bool(c.get("non_client", False))
                 self.edit_form_cin = c["cin"]
                 self.edit_form_name = c["name"]
                 self.edit_form_class = c["class"] if c["class"] != "-" else ""
@@ -961,9 +982,14 @@ class PortalState(rx.State):
         doi = self.edit_form_doi.strip()
         email = self.edit_form_email.strip()
         address = self.edit_form_address.strip()
-        if not cin or not name or not company_class or not company_category or not company_sub_category:
-            self.edit_form_error = "All fields are required."
-            return
+        if self.is_edit_form_non_client:
+            if not cin or not name or not self.edit_form_registration_number.strip():
+                self.edit_form_error = "CIN and Name are required for non-client companies."
+                return
+        else:
+            if not cin or not name or not company_class or not company_category or not company_sub_category:
+                self.edit_form_error = "All fields are required."
+                return
         if email and not _EMAIL_RE.match(email):
             self.edit_form_error = "Enter a valid email address."
             return
@@ -986,6 +1012,7 @@ class PortalState(rx.State):
             "pin_code": self.edit_form_pin_code.strip(),
             "phone": self.edit_form_phone.strip(),
             "country": self.edit_form_country.strip(),
+            "non_client": self.is_edit_form_non_client,
         }
         cid = self.edit_company_id
         self._clear_edit_company_form()
@@ -999,6 +1026,7 @@ class PortalState(rx.State):
             extra["number_of_members"], extra["date_of_last_agm"],
             extra["date_of_balance_sheet"], extra["listed_status"],
             extra["suspended"], extra["pin_code"], extra["phone"], extra["country"],
+            extra["non_client"],
         )
 
     def commit_edit_company(
@@ -1027,6 +1055,7 @@ class PortalState(rx.State):
         pin_code: str = "",
         phone: str = "",
         country: str = "",
+        non_client: bool = False,
     ):
         try:
             cid = int(company_id)
@@ -1035,6 +1064,7 @@ class PortalState(rx.State):
             self.is_saving = False
             return
         def _cap(v): return float(v) if v else None
+        non_client_value = int(bool(non_client))
         with SessionLocal() as session:
             existing = session.query(Company).filter(Company.cin == cin, Company.id != cid).first()
             if existing:
@@ -1047,6 +1077,7 @@ class PortalState(rx.State):
                 company.name = name
                 company.company_class = company_class
                 company.company_type = company_category
+                company.non_client = bool(non_client_value)
                 company.sub_category = company_sub_category
                 company.date_of_incorporation = doi or None
                 company.email = email or None
@@ -1092,16 +1123,20 @@ class PortalState(rx.State):
         doi = self.form_doi.strip()
         email = self.form_email.strip()
         address = self.form_address.strip()
-
-        if not cin or not name or not company_class or not company_category or not company_sub_category:
-            self.form_error = "All fields are required."
-            return
-        if email and not _EMAIL_RE.match(email):
-            self.form_error = "Enter a valid email address."
-            return
-        if doi and not _parse_doi(doi):
-            self.form_error = "Invalid date. Use DD/MM/YYYY (e.g. 15/08/2024)."
-            return
+        if self.is_non_client:
+            if not cin or not name or not self.form_registration_number:
+                self.form_error = "All fields are required."
+                return
+        else:
+            if not cin or not name or not company_class or not company_category or not company_sub_category:
+                self.form_error = "All fields are required."
+                return
+            if email and not _EMAIL_RE.match(email):
+                self.form_error = "Enter a valid email address."
+                return
+            if doi and not _parse_doi(doi):
+                self.form_error = "Invalid date. Use DD/MM/YYYY (e.g. 15/08/2024)."
+                return
 
         extra = {
             "roc_code": self.form_roc_code.strip(),
@@ -1119,6 +1154,7 @@ class PortalState(rx.State):
             "pin_code": self.form_pin_code.strip(),
             "phone": self.form_phone.strip(),
             "country": self.form_country.strip(),
+            "non_client": self.is_non_client
         }
         self._clear_form()
         self.is_saving = True
@@ -1131,6 +1167,7 @@ class PortalState(rx.State):
             extra["number_of_members"], extra["date_of_last_agm"],
             extra["date_of_balance_sheet"], extra["listed_status"],
             extra["suspended"], extra["pin_code"], extra["phone"], extra["country"],
+            extra["non_client"],
         )
 
     def commit_save(
@@ -1158,9 +1195,11 @@ class PortalState(rx.State):
         pin_code: str = "",
         phone: str = "",
         country: str = "",
+        non_client: bool = False,
     ):
         """Second hop: DB insert + table refresh."""
         def _cap(v): return float(v) if v else None
+        non_client_value = int(bool(non_client))
         with SessionLocal() as session:
             if session.query(Company).filter(Company.cin == cin).first():
                 self.error_message = f"A company with CIN '{cin}' already exists."
@@ -1172,6 +1211,7 @@ class PortalState(rx.State):
                     name=name,
                     company_class=company_class,
                     company_type=company_category,
+                    non_client=bool(non_client_value),
                     sub_category=company_sub_category,
                     date_of_incorporation=doi or None,
                     email=email or None,
@@ -1883,6 +1923,7 @@ class PortalState(rx.State):
                     "id": str(r.id),
                     "llpin": r.llpin,
                     "name": r.name,
+                    "non_client": bool(r.non_client),
                     "status": r.status,
                     "roc_name": r.roc_name or "",
                     "doi": _format_date(r.date_of_incorporation),
@@ -2006,6 +2047,7 @@ class PortalState(rx.State):
             "total_obligation": str(self.form_llp_total_obligation).strip(),
             "status_under_cirp": self.form_llp_status_under_cirp.strip(),
             "small_llp": self.form_llp_small_llp.strip(),
+            "non_client": self.form_llp_is_non_client,
         }
         self._clear_llp_form()
         self.is_saving = True
@@ -2014,13 +2056,14 @@ class PortalState(rx.State):
             extra["number_of_partners"], extra["number_of_designated_partners"],
             extra["total_obligation"], strike_off_date,
             extra["status_under_cirp"], extra["small_llp"],
+            extra["non_client"]
         )
 
     def commit_save_llp(
         self, llpin: str, name: str, roc_name: str = "", doi: str = "", email: str = "",
         address: str = "", number_of_partners: str = "", number_of_designated_partners: str = "",
         total_obligation: str = "", strike_off_date: str = "",
-        status_under_cirp: str = "", small_llp: str = "",
+        status_under_cirp: str = "", small_llp: str = "",non_client: bool = False
     ):
         def _num(v): return float(v) if v else None
         with SessionLocal() as session:
@@ -2042,6 +2085,7 @@ class PortalState(rx.State):
                     strike_off_date=strike_off_date or None,
                     status_under_cirp=status_under_cirp or None,
                     small_llp=small_llp or None,
+                    non_client=int(bool(non_client))
                 )
             )
             session.commit()
@@ -2055,6 +2099,7 @@ class PortalState(rx.State):
         self.edit_llp_id = llp_id
         for l in self.llps:
             if l["id"] == llp_id:
+                self.edit_form_llp_is_non_client = bool(l.get("non_client", False))
                 self.edit_form_llpin = l["llpin"]
                 self.edit_form_llp_name = l["name"]
                 self.edit_form_llp_roc_name = l["roc_name"]
@@ -2153,6 +2198,7 @@ class PortalState(rx.State):
             "total_obligation": str(self.edit_form_llp_total_obligation).strip(),
             "status_under_cirp": self.edit_form_llp_status_under_cirp.strip(),
             "small_llp": self.edit_form_llp_small_llp.strip(),
+            "non_client": self.edit_form_llp_is_non_client,
         }
         self._clear_edit_llp_form()
         self.is_saving = True
@@ -2161,13 +2207,14 @@ class PortalState(rx.State):
             extra["number_of_partners"], extra["number_of_designated_partners"],
             extra["total_obligation"], strike_off_date,
             extra["status_under_cirp"], extra["small_llp"],
+            extra["non_client"]
         )
 
     def commit_edit_llp(
         self, llp_id: str, llpin: str, name: str, roc_name: str = "", doi: str = "", email: str = "",
         address: str = "", number_of_partners: str = "", number_of_designated_partners: str = "",
         total_obligation: str = "", strike_off_date: str = "",
-        status_under_cirp: str = "", small_llp: str = "",
+        status_under_cirp: str = "", small_llp: str = "", non_client: int = False
     ):
         try:
             lid = int(llp_id)
@@ -2196,6 +2243,7 @@ class PortalState(rx.State):
                 llp.strike_off_date = strike_off_date or None
                 llp.status_under_cirp = status_under_cirp or None
                 llp.small_llp = small_llp or None
+                llp.non_client = int(bool(non_client)) 
                 session.commit()
         self.is_saving = False
         self.load_llps()
@@ -2754,6 +2802,21 @@ def _form_input(label: str, placeholder: str, value, on_change, input_type: str 
         width="100%",
     )
 
+def _form_checkbox(label: str, value, on_change) -> rx.Component:
+    return rx.vstack(
+        rx.text(
+            label,
+            size="2",
+            weight="bold",
+            color="#333",
+        ),
+        rx.checkbox(
+            checked=value,
+            on_change=on_change,
+        ),
+        spacing="1",
+        width="100%",
+    )
 
 def _form_select(label: str, options: list, value, on_change) -> rx.Component:
     return rx.vstack(
@@ -2781,7 +2844,6 @@ def _form_select(label: str, options: list, value, on_change) -> rx.Component:
         width="100%",
     )
 
-
 def _form_date_input(label: str, value, on_change) -> rx.Component:
     return rx.vstack(
         rx.text(label, size="2", weight="bold", color="#333"),
@@ -2806,7 +2868,6 @@ def _form_date_input(label: str, value, on_change) -> rx.Component:
         spacing="1",
         width="100%",
     )
-
 
 def _form_textarea(label: str, placeholder: str, value, on_change) -> rx.Component:
     return rx.vstack(
@@ -2835,7 +2896,6 @@ def _form_textarea(label: str, placeholder: str, value, on_change) -> rx.Compone
         width="100%",
     )
 
-
 def add_company_dialog() -> rx.Component:
     return rx.cond(
         PortalState.show_add_form,
@@ -2856,6 +2916,8 @@ def add_company_dialog() -> rx.Component:
                         align_items="center",
                     ),
                     rx.divider(),
+                    _form_checkbox("Non Client", PortalState.is_non_client, PortalState.handle_form_is_non_client_change),
+
                     # ── Identification ────────────────────────────────────────
                     rx.text("Identification", size="2", weight="bold", color="#667eea"),
                     rx.grid(
@@ -2864,6 +2926,8 @@ def add_company_dialog() -> rx.Component:
                         columns="2", spacing="3", width="100%",
                     ),
                     _form_input("Company Name", "Enter full company name", PortalState.form_name, PortalState.handle_form_name_change),
+
+                    rx.cond(~PortalState.is_non_client, rx.vstack(
                     # ── Jurisdiction ────────────────────────────────────────────
                     rx.text("Jurisdiction", size="2", weight="bold", color="#667eea"),
                     rx.grid(
@@ -2942,7 +3006,7 @@ def add_company_dialog() -> rx.Component:
                         _form_input("Pin Code", "e.g. 400001", PortalState.form_pin_code, PortalState.handle_form_pin_code_change),
                         _form_input("Country", "e.g. India", PortalState.form_country, PortalState.handle_form_country_change),
                         columns="2", spacing="3", width="100%",
-                    ),
+                    ))),
                     rx.cond(
                         PortalState.form_error != "",
                         rx.box(
@@ -3026,6 +3090,7 @@ def edit_company_dialog() -> rx.Component:
                         align_items="center",
                     ),
                     rx.divider(),
+                    _form_checkbox("Non Client", PortalState.is_edit_form_non_client, PortalState.handle_edit_form_is_non_client_change),
                     # ── Identification ────────────────────────────────────────
                     rx.text("Identification", size="2", weight="bold", color="#667eea"),
                     rx.grid(
@@ -3034,84 +3099,84 @@ def edit_company_dialog() -> rx.Component:
                         columns="2", spacing="3", width="100%",
                     ),
                     _form_input("Company Name", "Enter full company name", PortalState.edit_form_name, PortalState.handle_edit_form_name_change),
-                    # ── Jurisdiction ────────────────────────────────────────────
-                    rx.text("Jurisdiction", size="2", weight="bold", color="#667eea"),
-                    rx.grid(
-                        _form_input("ROC Name", "e.g. Registrar of Companies, Mumbai", PortalState.edit_form_roc_code, PortalState.handle_edit_form_roc_code_change),
-                        _form_input("ROC Office", "e.g. Mumbai", PortalState.edit_form_roc_office, PortalState.handle_edit_form_roc_office_change),
-                        columns="2", spacing="3", width="100%",
-                    ),
-                    rx.grid(
-                        _form_input("RD Name", "e.g. Regional Director, Western Region", PortalState.edit_form_rd_name, PortalState.handle_edit_form_rd_name_change),
-                        _form_input("RD Region", "e.g. Western Region", PortalState.edit_form_rd_region, PortalState.handle_edit_form_rd_region_change),
-                        columns="2", spacing="3", width="100%",
-                    ),
-                    # ── Classification ────────────────────────────────────────
-                    rx.text("Classification", size="2", weight="bold", color="#667eea"),
-                    rx.grid(
-                        _form_select("Class", ["PUBLIC", "PRIVATE"], PortalState.edit_form_class, PortalState.handle_edit_form_class_change),
-                        _form_select("Category", ["Company limited by Shares", "Company limited by Guarantee", "Unlimited Company"], PortalState.edit_form_category, PortalState.handle_edit_form_category_change),
-                        columns="2", spacing="3", width="100%",
-                    ),
-                    _form_select(
-                        "Sub Category",
-                        ["Non-government company", "State government company", "Union government company", "Subsidiary of company incorporated outside India"],
-                        PortalState.edit_form_sub_category,
-                        PortalState.handle_edit_form_sub_category_change,
-                    ),
-                    rx.grid(
-                        _form_select("Listed Status", ["Listed", "Unlisted"], PortalState.edit_form_listed_status, PortalState.handle_edit_form_listed_status_change),
-                        _form_select("Suspended at Stock Exchange", ["Yes", "No"], PortalState.edit_form_suspended_at_stock_exchange, PortalState.handle_edit_form_suspended_change),
-                        columns="2", spacing="3", width="100%",
-                    ),
-                    # ── Financials ────────────────────────────────────────────
-                    rx.text("Financials", size="2", weight="bold", color="#667eea"),
-                    rx.grid(
+                    rx.cond(
+                        ~PortalState.is_edit_form_non_client,
                         rx.vstack(
-                            rx.text("Authorised Capital (₹)", size="2", weight="bold", color="#333"),
-                            rx.el.input(
-                                placeholder="e.g. 1000000",
-                                value=PortalState.edit_form_authorised_capital,
-                                on_change=PortalState.handle_edit_form_authorised_capital_change,
-                                type="number", min="0", step="1",
-                                style={"width": "100%", "padding": "0.625rem 0.875rem", "border_radius": "0.5rem", "border": "2px solid #d0d0d0", "background_color": "white", "font_size": "0.95rem", "color": "black", "outline": "none", "box_sizing": "border-box"},
+                            rx.text("Jurisdiction", size="2", weight="bold", color="#667eea"),
+                            rx.grid(
+                                _form_input("ROC Name", "e.g. Registrar of Companies, Mumbai", PortalState.edit_form_roc_code, PortalState.handle_edit_form_roc_code_change),
+                                _form_input("ROC Office", "e.g. Mumbai", PortalState.edit_form_roc_office, PortalState.handle_edit_form_roc_office_change),
+                                columns="2", spacing="3", width="100%",
                             ),
-                            spacing="1", width="100%",
-                        ),
-                        rx.vstack(
-                            rx.text("Paid Up Capital (₹)", size="2", weight="bold", color="#333"),
-                            rx.el.input(
-                                placeholder="e.g. 500000",
-                                value=PortalState.edit_form_paid_up_capital,
-                                on_change=PortalState.handle_edit_form_paid_up_capital_change,
-                                type="number", min="0", step="1",
-                                style={"width": "100%", "padding": "0.625rem 0.875rem", "border_radius": "0.5rem", "border": "2px solid #d0d0d0", "background_color": "white", "font_size": "0.95rem", "color": "black", "outline": "none", "box_sizing": "border-box"},
+                            rx.grid(
+                                _form_input("RD Name", "e.g. Regional Director, Western Region", PortalState.edit_form_rd_name, PortalState.handle_edit_form_rd_name_change),
+                                _form_input("RD Region", "e.g. Western Region", PortalState.edit_form_rd_region, PortalState.handle_edit_form_rd_region_change),
+                                columns="2", spacing="3", width="100%",
                             ),
-                            spacing="1", width="100%",
+                            rx.text("Classification", size="2", weight="bold", color="#667eea"),
+                            rx.grid(
+                                _form_select("Class", ["PUBLIC", "PRIVATE"], PortalState.edit_form_class, PortalState.handle_edit_form_class_change),
+                                _form_select("Category", ["Company limited by Shares", "Company limited by Guarantee", "Unlimited Company"], PortalState.edit_form_category, PortalState.handle_edit_form_category_change),
+                                columns="2", spacing="3", width="100%",
+                            ),
+                            _form_select(
+                                "Sub Category",
+                                ["Non-government company", "State government company", "Union government company", "Subsidiary of company incorporated outside India"],
+                                PortalState.edit_form_sub_category,
+                                PortalState.handle_edit_form_sub_category_change,
+                            ),
+                            rx.grid(
+                                _form_select("Listed Status", ["Listed", "Unlisted"], PortalState.edit_form_listed_status, PortalState.handle_edit_form_listed_status_change),
+                                _form_select("Suspended at Stock Exchange", ["Yes", "No"], PortalState.edit_form_suspended_at_stock_exchange, PortalState.handle_edit_form_suspended_change),
+                                columns="2", spacing="3", width="100%",
+                            ),
+                            rx.text("Financials", size="2", weight="bold", color="#667eea"),
+                            rx.grid(
+                                rx.vstack(
+                                    rx.text("Authorised Capital (₹)", size="2", weight="bold", color="#333"),
+                                    rx.el.input(
+                                        placeholder="e.g. 1000000",
+                                        value=PortalState.edit_form_authorised_capital,
+                                        on_change=PortalState.handle_edit_form_authorised_capital_change,
+                                        type="number", min="0", step="1",
+                                        style={"width": "100%", "padding": "0.625rem 0.875rem", "border_radius": "0.5rem", "border": "2px solid #d0d0d0", "background_color": "white", "font_size": "0.95rem", "color": "black", "outline": "none", "box_sizing": "border-box"},
+                                    ),
+                                    spacing="1", width="100%",
+                                ),
+                                rx.vstack(
+                                    rx.text("Paid Up Capital (₹)", size="2", weight="bold", color="#333"),
+                                    rx.el.input(
+                                        placeholder="e.g. 500000",
+                                        value=PortalState.edit_form_paid_up_capital,
+                                        on_change=PortalState.handle_edit_form_paid_up_capital_change,
+                                        type="number", min="0", step="1",
+                                        style={"width": "100%", "padding": "0.625rem 0.875rem", "border_radius": "0.5rem", "border": "2px solid #d0d0d0", "background_color": "white", "font_size": "0.95rem", "color": "black", "outline": "none", "box_sizing": "border-box"},
+                                    ),
+                                    spacing="1", width="100%",
+                                ),
+                                columns="2", spacing="3", width="100%",
+                            ),
+                            _form_input("Number of Members", "e.g. 7", PortalState.edit_form_number_of_members, PortalState.handle_edit_form_number_of_members_change),
+                            rx.text("Important Dates", size="2", weight="bold", color="#667eea"),
+                            rx.grid(
+                                _form_date_input("Date of Incorporation", PortalState.edit_form_doi, PortalState.handle_edit_form_doi_change),
+                                _form_date_input("Date of Last AGM", PortalState.edit_form_date_of_last_agm, PortalState.handle_edit_form_date_of_last_agm_change),
+                                _form_date_input("Date of Balance Sheet", PortalState.edit_form_date_of_balance_sheet, PortalState.handle_edit_form_date_of_balance_sheet_change),
+                                columns="2", spacing="3", width="100%",
+                            ),
+                            rx.text("Contact & Address", size="2", weight="bold", color="#667eea"),
+                            rx.grid(
+                                _form_input("Email Address", "e.g. company@example.com", PortalState.edit_form_email, PortalState.handle_edit_form_email_change, "email"),
+                                _form_input("Phone", "e.g. 022-12345678", PortalState.edit_form_phone, PortalState.handle_edit_form_phone_change),
+                                columns="2", spacing="3", width="100%",
+                            ),
+                            _form_textarea("Registered Address", "Building/Street, Area", PortalState.edit_form_address, PortalState.handle_edit_form_address_change),
+                            rx.grid(
+                                _form_input("Pin Code", "e.g. 400001", PortalState.edit_form_pin_code, PortalState.handle_edit_form_pin_code_change),
+                                _form_input("Country", "e.g. India", PortalState.edit_form_country, PortalState.handle_edit_form_country_change),
+                                columns="2", spacing="3", width="100%",
+                            ),
                         ),
-                        columns="2", spacing="3", width="100%",
-                    ),
-                    _form_input("Number of Members", "e.g. 7", PortalState.edit_form_number_of_members, PortalState.handle_edit_form_number_of_members_change),
-                    # ── Important Dates ───────────────────────────────────────
-                    rx.text("Important Dates", size="2", weight="bold", color="#667eea"),
-                    rx.grid(
-                        _form_date_input("Date of Incorporation", PortalState.edit_form_doi, PortalState.handle_edit_form_doi_change),
-                        _form_date_input("Date of Last AGM", PortalState.edit_form_date_of_last_agm, PortalState.handle_edit_form_date_of_last_agm_change),
-                        _form_date_input("Date of Balance Sheet", PortalState.edit_form_date_of_balance_sheet, PortalState.handle_edit_form_date_of_balance_sheet_change),
-                        columns="2", spacing="3", width="100%",
-                    ),
-                    # ── Contact & Address ─────────────────────────────────────
-                    rx.text("Contact & Address", size="2", weight="bold", color="#667eea"),
-                    rx.grid(
-                        _form_input("Email Address", "e.g. company@example.com", PortalState.edit_form_email, PortalState.handle_edit_form_email_change, "email"),
-                        _form_input("Phone", "e.g. 022-12345678", PortalState.edit_form_phone, PortalState.handle_edit_form_phone_change),
-                        columns="2", spacing="3", width="100%",
-                    ),
-                    _form_textarea("Registered Address", "Building/Street, Area", PortalState.edit_form_address, PortalState.handle_edit_form_address_change),
-                    rx.grid(
-                        _form_input("Pin Code", "e.g. 400001", PortalState.edit_form_pin_code, PortalState.handle_edit_form_pin_code_change),
-                        _form_input("Country", "e.g. India", PortalState.edit_form_country, PortalState.handle_edit_form_country_change),
-                        columns="2", spacing="3", width="100%",
                     ),
                     rx.cond(
                         PortalState.edit_form_error != "",
@@ -4316,11 +4381,13 @@ def add_llp_dialog() -> rx.Component:
                         align_items="center",
                     ),
                     rx.divider(),
+                    _form_checkbox("Non Client", PortalState.form_llp_is_non_client, PortalState.handle_llp_is_non_client_change),
                     rx.grid(
                         _form_input("LLPIN", "e.g. AAA-1234", PortalState.form_llpin, PortalState.handle_form_llpin_change),
                         _form_input("LLP Name", "Enter full LLP name", PortalState.form_llp_name, PortalState.handle_form_llp_name_change),
                         columns="2", spacing="3", width="100%",
                     ),
+                    rx.cond(~PortalState.form_llp_is_non_client,rx.vstack(
                     rx.grid(
                         _form_input("ROC Name", "e.g. ROC Bangalore", PortalState.form_llp_roc_name, PortalState.handle_form_llp_roc_name_change),
                         _form_date_input("Date of Incorporation", PortalState.form_llp_doi, PortalState.handle_form_llp_doi_change),
@@ -4342,7 +4409,7 @@ def add_llp_dialog() -> rx.Component:
                         _form_select("Small LLP", ["Yes", "No"], PortalState.form_llp_small_llp, PortalState.handle_form_llp_small_llp_change),
                         columns="2", spacing="3", width="100%",
                     ),
-                    _form_date_input("Strike off / amalgamated / transferred date", PortalState.form_llp_strike_off_date, PortalState.handle_form_llp_strike_off_date_change),
+                    _form_date_input("Strike off / amalgamated / transferred date", PortalState.form_llp_strike_off_date, PortalState.handle_form_llp_strike_off_date_change))),
                     rx.cond(
                         PortalState.form_llp_error != "",
                         rx.box(
@@ -4426,11 +4493,13 @@ def edit_llp_dialog() -> rx.Component:
                         align_items="center",
                     ),
                     rx.divider(),
+                    _form_checkbox("Non Client", PortalState.edit_form_llp_is_non_client, PortalState.handle_edit_llp_is_non_client_change),
                     rx.grid(
                         _form_input("LLPIN", "e.g. AAA-1234", PortalState.edit_form_llpin, PortalState.handle_edit_form_llpin_change),
                         _form_input("LLP Name", "Enter full LLP name", PortalState.edit_form_llp_name, PortalState.handle_edit_form_llp_name_change),
                         columns="2", spacing="3", width="100%",
                     ),
+                    rx.cond(~PortalState.edit_form_llp_is_non_client,rx.vstack(
                     rx.grid(
                         _form_input("ROC Name", "e.g. ROC Bangalore", PortalState.edit_form_llp_roc_name, PortalState.handle_edit_form_llp_roc_name_change),
                         _form_date_input("Date of Incorporation", PortalState.edit_form_llp_doi, PortalState.handle_edit_form_llp_doi_change),
@@ -4452,7 +4521,7 @@ def edit_llp_dialog() -> rx.Component:
                         _form_select("Small LLP", ["Yes", "No"], PortalState.edit_form_llp_small_llp, PortalState.handle_edit_form_llp_small_llp_change),
                         columns="2", spacing="3", width="100%",
                     ),
-                    _form_date_input("Strike off / amalgamated / transferred date", PortalState.edit_form_llp_strike_off_date, PortalState.handle_edit_form_llp_strike_off_date_change),
+                    _form_date_input("Strike off / amalgamated / transferred date", PortalState.edit_form_llp_strike_off_date, PortalState.handle_edit_form_llp_strike_off_date_change))),
                     rx.cond(
                         PortalState.edit_form_llp_error != "",
                         rx.box(
