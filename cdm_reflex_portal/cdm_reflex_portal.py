@@ -145,6 +145,13 @@ class PortalState(rx.State):
     edit_form_director_email: str = ""
     edit_form_director_phone: str = ""
     edit_form_director_error: str = ""
+    # Director association viewer
+    show_director_associations: bool = False
+    viewing_director_id: str = ""
+    viewing_director_name: str = ""
+    viewing_director_din: str = ""
+    director_company_associations: list[dict] = []
+    director_llp_associations: list[dict] = []
 
     # ── Company-Director associations ─────────────────────────────────────────
     show_manage_directors: bool = False
@@ -339,6 +346,15 @@ class PortalState(rx.State):
         self.edit_form_director_email = ""
         self.edit_form_director_phone = ""
         self.edit_form_director_error = ""
+
+    def _clear_director_associations(self) -> None:
+        """Reset director association viewer state."""
+        self.show_director_associations = False
+        self.viewing_director_id = ""
+        self.viewing_director_name = ""
+        self.viewing_director_din = ""
+        self.director_company_associations = []
+        self.director_llp_associations = []
 
     def _clear_manage_directors(self) -> None:
         """Reset company-director association panel state."""
@@ -538,6 +554,7 @@ class PortalState(rx.State):
         self._clear_edit_company_form()
         self._clear_edit_user_form()
         self._clear_edit_director_form()
+        self._clear_director_associations()
         self._clear_manage_directors()
         self._clear_edit_llp_form()
         self._clear_manage_llp_partners()
@@ -1578,6 +1595,70 @@ class PortalState(rx.State):
                 session.delete(director)
                 session.commit()
         self.load_directors()
+
+    def open_director_associations(self, director_id: str):
+        self._clear_director_associations()
+        self.viewing_director_id = director_id
+        try:
+            did = int(director_id)
+        except (ValueError, TypeError):
+            self.error_message = f"Invalid director ID '{director_id}'."
+            return
+
+        with SessionLocal() as session:
+            director = session.query(Director).filter(Director.id == did).first()
+            if not director:
+                self.error_message = "Director not found."
+                return
+            self.viewing_director_name = director.name
+            self.viewing_director_din = director.din
+
+            company_rows = (
+                session.query(CompanyDirector, Company)
+                .join(Company, CompanyDirector.company_id == Company.id)
+                .filter(CompanyDirector.director_id == did)
+                .order_by(Company.name.asc())
+                .all()
+            )
+            self.director_company_associations = [
+                {
+                    "company_id": str(c.id),
+                    "cin": c.cin,
+                    "name": c.name,
+                    "designation": cd.designation or "",
+                    "category": cd.category or "",
+                    "share_percent": str(cd.share_percent) if cd.share_percent is not None else "",
+                    "original_appointment_date": _format_date(cd.original_appointment_date),
+                    "current_designation_date": _format_date(cd.current_designation_date),
+                    "cessation_date": _format_date(cd.cessation_date),
+                }
+                for cd, c in company_rows
+            ]
+
+            llp_rows = (
+                session.query(LLPDirector, LLP)
+                .join(LLP, LLPDirector.llp_id == LLP.id)
+                .filter(LLPDirector.director_id == did)
+                .order_by(LLP.name.asc())
+                .all()
+            )
+            self.director_llp_associations = [
+                {
+                    "llp_id": str(l.id),
+                    "llpin": l.llpin,
+                    "name": l.name,
+                    "designation": ld.designation or "",
+                    "appointment_date": _format_date(ld.appointment_date),
+                    "cessation_date": _format_date(ld.cessation_date),
+                    "is_signatory": ld.is_signatory or "",
+                }
+                for ld, l in llp_rows
+            ]
+
+        self.show_director_associations = True
+
+    def close_director_associations(self):
+        self._clear_director_associations()
 
     # ── Company-Director associations ────────────────────────────────────────
 
@@ -3848,6 +3929,14 @@ def directors_table() -> rx.Component:
                     ),
                     rx.table.cell(rx.badge(item["status"], variant="outline", color_scheme="green")),
                     rx.table.cell(
+                        rx.hstack(
+                        rx.button(
+                            rx.hstack(rx.icon("eye", size=14)),
+                            on_click=PortalState.open_director_associations(item["id"]),
+                            color_scheme="blue",
+                            variant="ghost",
+                            size="1",
+                        ),
                         rx.cond(
                             (PortalState.role == "ADMIN") | (PortalState.role == "EDITOR"),
                             rx.button(
@@ -3932,6 +4021,9 @@ def directors_table() -> rx.Component:
                                 ),
                             ),
                         ),
+                        spacing="2",
+                        align="center",
+                        ),
                     _hover={"background": "rgba(102,126,234,0.04)"},
                     border_bottom="1px solid #f0f0f0",
                     padding="1rem",
@@ -4001,6 +4093,195 @@ def directors_section() -> rx.Component:
         spacing="5",
         padding="2rem",
         width="100%",
+    )
+
+
+def director_associations_dialog() -> rx.Component:
+    return rx.cond(
+        PortalState.show_director_associations,
+        rx.box(
+            rx.box(
+                rx.vstack(
+                    rx.hstack(
+                        rx.icon("network", size=22, color="#667eea"),
+                        rx.vstack(
+                            rx.heading("Director Associations", size="5", color="#1a1a1a", weight="bold"),
+                            rx.text(
+                                f"{PortalState.viewing_director_name} (DIN: {PortalState.viewing_director_din})",
+                                size="2",
+                                color="#667eea",
+                            ),
+                            spacing="0",
+                        ),
+                        rx.spacer(),
+                        rx.button(
+                            rx.icon("x", size=18),
+                            on_click=PortalState.close_director_associations,
+                            variant="ghost",
+                            size="1",
+                            color="#666",
+                        ),
+                        width="100%",
+                        align_items="center",
+                    ),
+                    rx.divider(),
+                    rx.vstack(
+                        rx.hstack(
+                            rx.icon("building-2", size=18, color="#2563eb"),
+                            rx.heading(
+                                f"Companies ({PortalState.director_company_associations.length()})",
+                                size="3",
+                                color="#1a1a1a",
+                            ),
+                            spacing="2",
+                            align_items="center",
+                            width="100%",
+                        ),
+                        rx.cond(
+                            PortalState.director_company_associations.length() == 0,
+                            rx.text("No company association found.", size="2", color="#999"),
+                            rx.vstack(
+                                rx.foreach(
+                                    PortalState.director_company_associations,
+                                    lambda item: rx.box(
+                                        rx.vstack(
+                                            rx.hstack(
+                                                rx.heading(item["name"], size="3", color="#1a1a1a"),
+                                                rx.spacer(),
+                                                rx.badge(item["cin"], color_scheme="blue", variant="soft"),
+                                                width="100%",
+                                            ),
+                                            rx.text(
+                                                "Designation: ",
+                                                rx.cond(item["designation"] != "", item["designation"], "-"),
+                                                " | Category: ",
+                                                rx.cond(item["category"] != "", item["category"], "-"),
+                                                " | Share %: ",
+                                                rx.cond(item["share_percent"] != "", item["share_percent"], "-"),
+                                                size="2",
+                                                color="#444",
+                                            ),
+                                            rx.text(
+                                                "Original Appointment: ",
+                                                rx.cond(item["original_appointment_date"] != "", item["original_appointment_date"], "-"),
+                                                " | Current Designation: ",
+                                                rx.cond(item["current_designation_date"] != "", item["current_designation_date"], "-"),
+                                                " | Cessation: ",
+                                                rx.cond(item["cessation_date"] != "", item["cessation_date"], "-"),
+                                                size="2",
+                                                color="#666",
+                                            ),
+                                            spacing="1",
+                                            width="100%",
+                                        ),
+                                        width="100%",
+                                        padding="0.75rem",
+                                        border="1px solid #e5e7eb",
+                                        border_radius="0.5rem",
+                                        background="#fafafa",
+                                    ),
+                                ),
+                                spacing="2",
+                                width="100%",
+                            ),
+                        ),
+                        spacing="2",
+                        width="100%",
+                    ),
+                    rx.vstack(
+                        rx.hstack(
+                            rx.icon("building", size=18, color="#0f766e"),
+                            rx.heading(
+                                f"LLPs ({PortalState.director_llp_associations.length()})",
+                                size="3",
+                                color="#1a1a1a",
+                            ),
+                            spacing="2",
+                            align_items="center",
+                            width="100%",
+                        ),
+                        rx.cond(
+                            PortalState.director_llp_associations.length() == 0,
+                            rx.text("No LLP association found.", size="2", color="#999"),
+                            rx.vstack(
+                                rx.foreach(
+                                    PortalState.director_llp_associations,
+                                    lambda item: rx.box(
+                                        rx.vstack(
+                                            rx.hstack(
+                                                rx.heading(item["name"], size="3", color="#1a1a1a"),
+                                                rx.spacer(),
+                                                rx.badge(item["llpin"], color_scheme="teal", variant="soft"),
+                                                width="100%",
+                                            ),
+                                            rx.text(
+                                                "Designation: ",
+                                                rx.cond(item["designation"] != "", item["designation"], "-"),
+                                                " | Appointment: ",
+                                                rx.cond(item["appointment_date"] != "", item["appointment_date"], "-"),
+                                                " | Cessation: ",
+                                                rx.cond(item["cessation_date"] != "", item["cessation_date"], "-"),
+                                                size="2",
+                                                color="#444",
+                                            ),
+                                            rx.text(
+                                                "Signatory: ",
+                                                rx.cond(item["is_signatory"] != "", item["is_signatory"], "-"),
+                                                size="2",
+                                                color="#666",
+                                            ),
+                                            spacing="1",
+                                            width="100%",
+                                        ),
+                                        width="100%",
+                                        padding="0.75rem",
+                                        border="1px solid #e5e7eb",
+                                        border_radius="0.5rem",
+                                        background="#fafafa",
+                                    ),
+                                ),
+                                spacing="2",
+                                width="100%",
+                            ),
+                        ),
+                        spacing="2",
+                        width="100%",
+                    ),
+                    rx.hstack(
+                        rx.spacer(),
+                        rx.button(
+                            "Close",
+                            on_click=PortalState.close_director_associations,
+                            variant="outline",
+                            color_scheme="gray",
+                            size="3",
+                        ),
+                        width="100%",
+                        padding_top="0.5rem",
+                    ),
+                    spacing="4",
+                    width="100%",
+                ),
+                background="white",
+                border_radius="0.75rem",
+                padding="1.5rem",
+                width="95%",
+                max_width="900px",
+                max_height="85vh",
+                overflow_y="auto",
+                box_shadow="0 20px 60px rgba(0,0,0,0.3)",
+            ),
+            position="fixed",
+            top="0",
+            left="0",
+            width="100vw",
+            height="100vh",
+            background="rgba(0,0,0,0.5)",
+            z_index="1000",
+            display="flex",
+            align_items="center",
+            justify_content="center",
+        ),
     )
 
 
@@ -5814,6 +6095,7 @@ def dashboard_page() -> rx.Component:
         edit_company_dialog(),
         add_director_dialog(),
         edit_director_dialog(),
+        director_associations_dialog(),
         manage_company_directors_dialog(),
         add_llp_dialog(),
         edit_llp_dialog(),
