@@ -24,12 +24,16 @@ const fields: Array<keyof Company> = [
 export function CompanyForm({ initial, onSubmit, onCancel, submitLabel }: CompanyFormProps) {
   const [form, setForm] = useState<Partial<Company>>({
     status: "active",
+    nonClient: false,
     ...initial,
   });
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const requiredMissing = useMemo(() => {
+    if (form.nonClient) {
+      return !form.cin || !form.name;
+    }
     return !form.cin || !form.name || !form.type || !form.companyClass;
   }, [form]);
 
@@ -55,6 +59,14 @@ export function CompanyForm({ initial, onSubmit, onCancel, submitLabel }: Compan
   return (
     <form className="company-form" onSubmit={handleSubmit}>
       <div className="form-grid">
+        <label className="field field--checkbox">
+          <span>Non Client</span>
+          <input
+            type="checkbox"
+            checked={Boolean(form.nonClient)}
+            onChange={(e) => setForm((prev) => ({ ...prev, nonClient: e.target.checked }))}
+          />
+        </label>
         {fields.map((field) => (
           <label key={field} className="field">
             <span>{field}</span>

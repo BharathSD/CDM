@@ -27,6 +27,7 @@ model Company {
   name             String
   type             String
   companyClass     String
+  nonClient        Boolean  @default(false)
   status           String   @default("active")
   registrationDate DateTime?
   contactEmail     String?
