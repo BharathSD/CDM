@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
-from unicodedata import name
 
 import reflex as rx
 from sqlalchemy import func, or_
