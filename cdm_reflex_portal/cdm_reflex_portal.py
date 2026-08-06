@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
+from unicodedata import name
 
 import reflex as rx
 from sqlalchemy import func, or_
@@ -24,16 +25,23 @@ init_db()
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", re.IGNORECASE)
 _ISO_DATE_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
-
+_CIN_RE = re.compile(r"^[LU]\d{5}[A-Z]{2}\d{4}[A-Z]{3}\d{6}$")
+_LLPIN_RE = re.compile(r"^[A-Z]{3}-?\d{4}$")
 
 def _parse_doi(value: str) -> bool:
     """Return True if value is a valid calendar date in DD/MM/YYYY format."""
     try:
-        datetime.strptime(value, "%d/%m/%Y")
-        return True
+        doi=datetime.strptime(value, "%d/%m/%Y").date()
+        today = datetime.today().date()
+        return doi < today
     except ValueError:
         return False
 
+def is_valid_cin(cin: str) -> bool:
+    return bool(_CIN_RE.fullmatch(cin.strip().upper()))
+
+def is_valid_llpin(llpin: str) -> bool:
+    return bool(_LLPIN_RE.fullmatch(llpin.strip().upper()))
 
 def _format_date(value: str | None) -> str:
     """Convert YYYY-MM-DD (from DB / old picker) to DD/MM/YYYY for display."""
@@ -43,6 +51,24 @@ def _format_date(value: str | None) -> str:
     if m:
         return f"{m.group(3)}/{m.group(2)}/{m.group(1)}"
     return value
+
+
+def _input_date_value(value: str | None):
+    """Convert DD/MM/YYYY or YYYY-MM-DD for the browser date input when given a plain string."""
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        return value
+    value = value.strip()
+    if not value:
+        return ""
+    m = _ISO_DATE_RE.match(value)
+    if m:
+        return value
+    m = re.match(r"^(\d{1,2})/(\d{1,2})/(\d{4})$", value)
+    if m:
+        return f"{m.group(3)}-{m.group(2).zfill(2)}-{m.group(1).zfill(2)}"
+    return ""
 
 
 class PortalState(rx.State):
@@ -74,6 +100,7 @@ class PortalState(rx.State):
     is_non_client: bool = False
     form_cin: str = ""
     form_name: str = ""
+    form_pan: str = ""
     form_class: str = ""
     form_category: str = ""
     form_sub_category: str = ""
@@ -104,6 +131,7 @@ class PortalState(rx.State):
     edit_company_id: str = ""
     edit_form_cin: str = ""
     edit_form_name: str = ""
+    edit_form_pan: str = ""
     edit_form_class: str = ""
     edit_form_category: str = ""
     edit_form_sub_category: str = ""
@@ -180,6 +208,7 @@ class PortalState(rx.State):
     form_llp_is_non_client: bool = False
     form_llpin: str = ""
     form_llp_name: str = ""
+    form_llp_pan: str = ""
     form_llp_roc_name: str = ""
     form_llp_doi: str = ""
     form_llp_email: str = ""
@@ -197,6 +226,7 @@ class PortalState(rx.State):
     edit_llp_id: str = ""
     edit_form_llpin: str = ""
     edit_form_llp_name: str = ""
+    edit_form_llp_pan: str = ""
     edit_form_llp_roc_name: str = ""
     edit_form_llp_doi: str = ""
     edit_form_llp_email: str = ""
@@ -261,6 +291,7 @@ class PortalState(rx.State):
         self.is_non_client = False
         self.form_cin = ""
         self.form_name = ""
+        self.form_pan = ""
         self.form_class = ""
         self.form_category = ""
         self.form_sub_category = ""
@@ -290,6 +321,7 @@ class PortalState(rx.State):
         self.edit_company_id = ""
         self.edit_form_cin = ""
         self.edit_form_name = ""
+        self.edit_form_pan = ""
         self.edit_form_class = ""
         self.edit_form_category = ""
         self.edit_form_sub_category = ""
@@ -382,6 +414,7 @@ class PortalState(rx.State):
         self.form_llp_is_non_client = False
         self.form_llpin = ""
         self.form_llp_name = ""
+        self.form_llp_pan = ""
         self.form_llp_roc_name = ""
         self.form_llp_doi = ""
         self.form_llp_email = ""
@@ -401,6 +434,7 @@ class PortalState(rx.State):
         self.edit_llp_id = ""
         self.edit_form_llpin = ""
         self.edit_form_llp_name = ""
+        self.edit_form_llp_pan = ""
         self.edit_form_llp_roc_name = ""
         self.edit_form_llp_doi = ""
         self.edit_form_llp_email = ""
@@ -701,6 +735,7 @@ class PortalState(rx.State):
                     "id": str(r.id),
                     "cin": r.cin,
                     "name": r.name,
+                    "pan": r.pan or "",
                     "non_client": bool(r.non_client),
                     "class": r.company_class or "-",
                     "category": r.company_type or "-",
@@ -764,6 +799,10 @@ class PortalState(rx.State):
         if self.show_add_form:
             self.form_name = value
 
+    def handle_form_pan_change(self, value: str):
+        if self.show_add_form:
+            self.form_pan = value   
+
     def handle_form_class_change(self, value: str):
         if self.show_add_form:
             self.form_class = value
@@ -791,6 +830,7 @@ class PortalState(rx.State):
                 self.is_edit_form_non_client = bool(c.get("non_client", False))
                 self.edit_form_cin = c["cin"]
                 self.edit_form_name = c["name"]
+                self.edit_form_pan = c.get("pan", "")
                 self.edit_form_class = c["class"] if c["class"] != "-" else ""
                 self.edit_form_category = c["category"] if c["category"] != "-" else ""
                 self.edit_form_sub_category = c["sub_category"] if c["sub_category"] != "-" else ""
@@ -825,6 +865,10 @@ class PortalState(rx.State):
         if self.show_edit_company_form:
             self.edit_form_name = value
 
+    def handle_edit_form_pan_change(self, value: str):
+        if self.show_edit_company_form:
+            self.edit_form_pan = value
+
     def handle_edit_form_class_change(self, value: str):
         if self.show_edit_company_form:
             self.edit_form_class = value
@@ -839,8 +883,10 @@ class PortalState(rx.State):
 
     def handle_form_doi_change(self, value: str):
         if self.show_add_form:
-            m = _ISO_DATE_RE.match(value)
-            self.form_doi = f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m else value
+            # m = _ISO_DATE_RE.match(value)
+            # self.form_doi = f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m else value
+            # datetime.strptime(value, "%Y-%m-%d").strftime("%d/%m/%Y")
+            self.form_doi = value
 
     def handle_form_email_change(self, value: str):
         if self.show_add_form:
@@ -884,13 +930,15 @@ class PortalState(rx.State):
 
     def handle_form_date_of_last_agm_change(self, value: str):
         if self.show_add_form:
-            m = _ISO_DATE_RE.match(value)
-            self.form_date_of_last_agm = f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m else value
+            # m = _ISO_DATE_RE.match(value)
+            # self.form_date_of_last_agm = f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m else value
+            self.form_date_of_last_agm = value
 
     def handle_form_date_of_balance_sheet_change(self, value: str):
         if self.show_add_form:
-            m = _ISO_DATE_RE.match(value)
-            self.form_date_of_balance_sheet = f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m else value
+            # m = _ISO_DATE_RE.match(value)
+            # self.form_date_of_balance_sheet = f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m else value
+            self.form_date_of_balance_sheet = value
 
     def handle_form_listed_status_change(self, value: str):
         if self.show_add_form:
@@ -993,27 +1041,49 @@ class PortalState(rx.State):
             return
         cin = self.edit_form_cin.strip()
         name = self.edit_form_name.strip()
+        pan = self.edit_form_pan.strip()
         company_class = self.edit_form_class.strip()
         company_category = self.edit_form_category.strip()
         company_sub_category = self.edit_form_sub_category.strip()
         doi = self.edit_form_doi.strip()
         email = self.edit_form_email.strip()
         address = self.edit_form_address.strip()
-        if self.is_edit_form_non_client:
-            if not cin or not name or not self.edit_form_registration_number.strip():
-                self.edit_form_error = "CIN and Name are required for non-client companies."
+
+        if not cin:
+            self.form_error = "CIN is required."
+            return
+        if not cin.isalnum():
+            self.form_error = "CIN must contain only letters and numbers."
+            return
+        if not name:
+            self.form_error = "Name is required."
+            return
+        if self.is_non_client:
+            if not self.form_registration_number:
+                self.form_error = "Registration Number is required."
+                return
+            if not self.form_registration_number.isnumeric():
+                self.form_error = "Registration Number must contain only digits."
                 return
         else:
-            if not cin or not name or not company_class or not company_category or not company_sub_category:
-                self.edit_form_error = "All fields are required."
+            if not company_class:
+                self.form_error = "Company Class is required."
                 return
-        if email and not _EMAIL_RE.match(email):
-            self.edit_form_error = "Enter a valid email address."
-            return
-        if doi and not _parse_doi(doi):
-            self.edit_form_error = "Invalid date. Use DD/MM/YYYY (e.g. 15/08/2024)."
-            return
+
+            if not company_category:
+                self.form_error = "Company Category is required."
+                return
+            if not company_sub_category:
+                self.form_error = "Company Sub Category is required."
+                return
+            if email and not _EMAIL_RE.match(email):
+                self.form_error = "Enter a valid email address."
+                return
+            if doi and not _parse_doi(doi):
+                self.form_error = "Date cannot be in the future and must be in DD-MM-YYYY format."
+                return
         extra = {
+            "pan": pan,
             "roc_code": self.edit_form_roc_code.strip(),
             "roc_office": self.edit_form_roc_office.strip(),
             "rd_name": self.edit_form_rd_name.strip(),
@@ -1035,7 +1105,7 @@ class PortalState(rx.State):
         self._clear_edit_company_form()
         self.is_saving = True
         return PortalState.commit_edit_company(
-            cid, cin, name, company_class, company_category, company_sub_category,
+            cid, cin, name, pan, company_class, company_category, company_sub_category,
             doi, email, address,
             extra["roc_code"], extra["roc_office"], extra["rd_name"], extra["rd_region"],
             extra["registration_number"],
@@ -1051,9 +1121,10 @@ class PortalState(rx.State):
         company_id: str,
         cin: str,
         name: str,
-        company_class: str,
-        company_category: str,
-        company_sub_category: str,
+        pan: str = "",
+        company_class: str = "",
+        company_category: str = "",
+        company_sub_category: str = "",
         doi: str = "",
         email: str = "",
         address: str = "",
@@ -1092,6 +1163,7 @@ class PortalState(rx.State):
             if company:
                 company.cin = cin
                 company.name = name
+                company.pan = pan or None
                 company.company_class = company_class
                 company.company_type = company_category
                 company.non_client = bool(non_client_value)
@@ -1134,28 +1206,47 @@ class PortalState(rx.State):
 
         cin = self.form_cin.strip()
         name = self.form_name.strip()
+        pan = self.form_pan.strip()
         company_class = self.form_class.strip()
         company_category = self.form_category.strip()
         company_sub_category = self.form_sub_category.strip()
         doi = self.form_doi.strip()
         email = self.form_email.strip()
         address = self.form_address.strip()
-        if self.is_non_client:
-            if not cin or not name or not self.form_registration_number:
-                self.form_error = "All fields are required."
+        if not cin:
+            self.form_error = "CIN is required."
+            return
+        if not is_valid_cin(cin):
+            self.form_error = "Not a valid CIN."
+            return
+        if not name:
+            self.form_error = "Name is required."
+            return
+        if not self.form_registration_number:
+            self.form_error = "Registration Number is required."
+            return
+        if not self.form_registration_number.isnumeric():
+            self.form_error = "Registration Number must contain only digits."
+            return
+        if not self.is_non_client:
+            if not company_class:
+                self.form_error = "Company Class is required."
                 return
-        else:
-            if not cin or not name or not company_class or not company_category or not company_sub_category:
-                self.form_error = "All fields are required."
+            if not company_category:
+                self.form_error = "Company Category is required."
+                return
+            if not company_sub_category:
+                self.form_error = "Company Sub Category is required."
                 return
             if email and not _EMAIL_RE.match(email):
                 self.form_error = "Enter a valid email address."
                 return
             if doi and not _parse_doi(doi):
-                self.form_error = "Invalid date. Use DD/MM/YYYY (e.g. 15/08/2024)."
+                self.form_error = "Date cannot be in the future and must be in DD-MM-YYYY format."
                 return
 
         extra = {
+            "pan": pan,
             "roc_code": self.form_roc_code.strip(),
             "roc_office": self.form_roc_office.strip(),
             "rd_name": self.form_rd_name.strip(),
@@ -1176,7 +1267,7 @@ class PortalState(rx.State):
         self._clear_form()
         self.is_saving = True
         return PortalState.commit_save(
-            cin, name, company_class, company_category, company_sub_category,
+            cin, name, pan, company_class, company_category, company_sub_category,
             doi, email, address,
             extra["roc_code"], extra["roc_office"], extra["rd_name"], extra["rd_region"],
             extra["registration_number"],
@@ -1191,9 +1282,10 @@ class PortalState(rx.State):
         self,
         cin: str,
         name: str,
-        company_class: str,
-        company_category: str,
-        company_sub_category: str,
+        pan: str = "",
+        company_class: str = "",
+        company_category: str = "",
+        company_sub_category: str = "",
         doi: str = "",
         email: str = "",
         address: str = "",
@@ -1226,6 +1318,7 @@ class PortalState(rx.State):
                 Company(
                     cin=cin,
                     name=name,
+                    pan=pan or None,
                     company_class=company_class,
                     company_type=company_category,
                     non_client=bool(non_client_value),
@@ -1488,6 +1581,9 @@ class PortalState(rx.State):
         phone = self.form_director_phone.strip()
         if not din or not name:
             self.form_director_error = "DIN and Name are required."
+            return
+        if not din.isnumeric():
+            self.form_director_error = "DIN must contain only digits."
             return
         if email and not _EMAIL_RE.match(email):
             self.form_director_error = "Enter a valid email address."
@@ -2004,6 +2100,7 @@ class PortalState(rx.State):
                     "id": str(r.id),
                     "llpin": r.llpin,
                     "name": r.name,
+                    "pan": r.pan or "",
                     "non_client": bool(r.non_client),
                     "status": r.status,
                     "roc_name": r.roc_name or "",
@@ -2052,6 +2149,10 @@ class PortalState(rx.State):
     def handle_form_llpin_change(self, value: str):
         if self.show_add_llp_form:
             self.form_llpin = value
+
+    def handle_form_llp_pan_change(self, value: str):
+        if self.show_add_llp_form:
+            self.form_llp_pan = value
 
     def handle_form_llp_name_change(self, value: str):
         if self.show_add_llp_form:
@@ -2105,8 +2206,12 @@ class PortalState(rx.State):
             return
         llpin = self.form_llpin.strip()
         name = self.form_llp_name.strip()
+        pan = self.form_llp_pan.strip()
         if not llpin or not name:
             self.form_llp_error = "LLPIN and Name are required."
+            return
+        if not is_valid_llpin(llpin):
+            self.form_llp_error = "Not a Valid LLPIN."
             return
         email = self.form_llp_email.strip()
         if email and not _EMAIL_RE.match(email):
@@ -2133,7 +2238,7 @@ class PortalState(rx.State):
         self._clear_llp_form()
         self.is_saving = True
         return PortalState.commit_save_llp(
-            llpin, name, extra["roc_name"], doi, email, extra["address"],
+            llpin, name, pan, extra["roc_name"], doi, email, extra["address"],
             extra["number_of_partners"], extra["number_of_designated_partners"],
             extra["total_obligation"], strike_off_date,
             extra["status_under_cirp"], extra["small_llp"],
@@ -2141,7 +2246,7 @@ class PortalState(rx.State):
         )
 
     def commit_save_llp(
-        self, llpin: str, name: str, roc_name: str = "", doi: str = "", email: str = "",
+        self, llpin: str, name: str, pan: str = "", roc_name: str = "", doi: str = "", email: str = "",
         address: str = "", number_of_partners: str = "", number_of_designated_partners: str = "",
         total_obligation: str = "", strike_off_date: str = "",
         status_under_cirp: str = "", small_llp: str = "",non_client: bool = False
@@ -2156,6 +2261,7 @@ class PortalState(rx.State):
                 LLP(
                     llpin=llpin,
                     name=name,
+                    pan=pan or None,
                     roc_name=roc_name or None,
                     date_of_incorporation=doi or None,
                     email=email or None,
@@ -2183,6 +2289,7 @@ class PortalState(rx.State):
                 self.edit_form_llp_is_non_client = bool(l.get("non_client", False))
                 self.edit_form_llpin = l["llpin"]
                 self.edit_form_llp_name = l["name"]
+                self.edit_form_llp_pan = l.get("pan", "")
                 self.edit_form_llp_roc_name = l["roc_name"]
                 self.edit_form_llp_doi = l["doi"]
                 self.edit_form_llp_email = l["email"]
@@ -2202,6 +2309,10 @@ class PortalState(rx.State):
     def handle_edit_form_llpin_change(self, value: str):
         if self.show_edit_llp_form:
             self.edit_form_llpin = value
+
+    def handle_edit_form_llp_pan_change(self, value: str):
+        if self.show_edit_llp_form:
+            self.edit_form_llp_pan = value
 
     def handle_edit_form_llp_name_change(self, value: str):
         if self.show_edit_llp_form:
@@ -2255,6 +2366,7 @@ class PortalState(rx.State):
             return
         llpin = self.edit_form_llpin.strip()
         name = self.edit_form_llp_name.strip()
+        pan = self.edit_form_llp_pan.strip()
         if not llpin or not name:
             self.edit_form_llp_error = "LLPIN and Name are required."
             return
@@ -2284,7 +2396,7 @@ class PortalState(rx.State):
         self._clear_edit_llp_form()
         self.is_saving = True
         return PortalState.commit_edit_llp(
-            lid, llpin, name, extra["roc_name"], doi, email, extra["address"],
+            lid, llpin, name, pan, extra["roc_name"], doi, email, extra["address"],
             extra["number_of_partners"], extra["number_of_designated_partners"],
             extra["total_obligation"], strike_off_date,
             extra["status_under_cirp"], extra["small_llp"],
@@ -2292,7 +2404,7 @@ class PortalState(rx.State):
         )
 
     def commit_edit_llp(
-        self, llp_id: str, llpin: str, name: str, roc_name: str = "", doi: str = "", email: str = "",
+        self, llp_id: str, llpin: str, name: str, pan: str = "", roc_name: str = "", doi: str = "", email: str = "",
         address: str = "", number_of_partners: str = "", number_of_designated_partners: str = "",
         total_obligation: str = "", strike_off_date: str = "",
         status_under_cirp: str = "", small_llp: str = "", non_client: int = False
@@ -2314,6 +2426,7 @@ class PortalState(rx.State):
             if llp:
                 llp.llpin = llpin
                 llp.name = name
+                llp.pan = pan or None
                 llp.roc_name = roc_name or None
                 llp.date_of_incorporation = doi or None
                 llp.email = email or None
@@ -2929,9 +3042,8 @@ def _form_date_input(label: str, value, on_change) -> rx.Component:
     return rx.vstack(
         rx.text(label, size="2", weight="bold", color="#333"),
         rx.el.input(
-            type="text",
-            placeholder="DD/MM/YYYY",
-            value=value,
+            type="date",
+            value=_input_date_value(value),
             on_change=on_change,
             style={
                 "width": "100%",
@@ -2945,7 +3057,7 @@ def _form_date_input(label: str, value, on_change) -> rx.Component:
                 "box_sizing": "border-box",
             },
         ),
-        rx.text("Format: DD/MM/YYYY (e.g. 15/08/2024)", size="1", color="#999"),
+        rx.text("Format: DD-MM-YYYY (e.g. 15-08-2024)", size="1", color="#999"),
         spacing="1",
         width="100%",
     )
@@ -3009,6 +3121,10 @@ def add_company_dialog() -> rx.Component:
                     _form_input("Company Name", "Enter full company name", PortalState.form_name, PortalState.handle_form_name_change),
 
                     rx.cond(~PortalState.is_non_client, rx.vstack(
+                    rx.grid(
+                        _form_input("PAN", "e.g. AAAAA0000A", PortalState.form_pan, PortalState.handle_form_pan_change),
+                            columns="2", spacing="3", width="100%",
+                    ),   
                     # ── Jurisdiction ────────────────────────────────────────────
                     rx.text("Jurisdiction", size="2", weight="bold", color="#667eea"),
                     rx.grid(
@@ -3182,6 +3298,10 @@ def edit_company_dialog() -> rx.Component:
                     _form_input("Company Name", "Enter full company name", PortalState.edit_form_name, PortalState.handle_edit_form_name_change),
                     rx.cond(
                         ~PortalState.is_edit_form_non_client,
+                        _form_input("PAN", "e.g. AAAAA0000A", PortalState.edit_form_pan, PortalState.handle_edit_form_pan_change),
+                    ),
+                    rx.cond(
+                        ~PortalState.is_edit_form_non_client,
                         rx.vstack(
                             rx.text("Jurisdiction", size="2", weight="bold", color="#667eea"),
                             rx.grid(
@@ -3326,6 +3446,7 @@ def companies_table() -> rx.Component:
             rx.table.row(
                 rx.table.column_header_cell("CIN", font_weight="700", color="white", font_size="0.95rem"),
                 rx.table.column_header_cell("Company Name", font_weight="700", color="white", font_size="0.95rem"),
+                rx.table.column_header_cell("PAN", font_weight="700", color="white", font_size="0.95rem"),
                 rx.table.column_header_cell("Class", font_weight="700", color="white", font_size="0.95rem"),
                 rx.table.column_header_cell("Category", font_weight="700", color="white", font_size="0.95rem"),
                 rx.table.column_header_cell("Sub Category", font_weight="700", color="white", font_size="0.95rem"),
@@ -3342,6 +3463,7 @@ def companies_table() -> rx.Component:
                 lambda item: rx.table.row(
                     rx.table.cell(rx.text(item["cin"], font_weight="600", color="#1a1a1a", size="3")),
                     rx.table.cell(rx.text(item["name"], font_weight="500", color="#333", size="3")),
+                    rx.table.cell(rx.text(item["pan"], color="#555", size="2")),
                     rx.table.cell(rx.badge(item["class"], variant="outline", color_scheme="violet")),
                     rx.table.cell(rx.badge(item["category"], variant="outline", color_scheme="cyan")),
                     rx.table.cell(rx.text(item["sub_category"], color="#555", size="2")),
@@ -3413,6 +3535,11 @@ def companies_table() -> rx.Component:
                                                         rx.hstack(
                                                             rx.text("Name:", size="2", weight="bold", color="#555"),
                                                             rx.text(item["name"], size="2", color="#1a1a1a"),
+                                                            spacing="2",
+                                                        ),
+                                                        rx.hstack(
+                                                            rx.text("PAN:", size="2", weight="bold", color="#555"),
+                                                            rx.text(item["pan"], size="2", color="#1a1a1a"),
                                                             spacing="2",
                                                         ),
                                                         padding="0.75rem",
@@ -3945,8 +4072,9 @@ def directors_table() -> rx.Component:
                                 color_scheme="blue",
                                 variant="ghost",
                                 size="1",
+                                spacing="1",
                             ),
-                        ),
+                        ),                
                         rx.cond(
                             PortalState.role == "ADMIN",
                             rx.dialog.root(
@@ -3956,6 +4084,7 @@ def directors_table() -> rx.Component:
                                         color_scheme="red",
                                         variant="ghost",
                                         size="1",
+                                        spacing="1",
                                     ),
                                 ),
                                     rx.dialog.content(
@@ -4669,6 +4798,7 @@ def add_llp_dialog() -> rx.Component:
                         columns="2", spacing="3", width="100%",
                     ),
                     rx.cond(~PortalState.form_llp_is_non_client,rx.vstack(
+                    _form_input("PAN", "e.g. AAAAA0000A", PortalState.form_llp_pan, PortalState.handle_form_llp_pan_change),
                     rx.grid(
                         _form_input("ROC Name", "e.g. ROC Bangalore", PortalState.form_llp_roc_name, PortalState.handle_form_llp_roc_name_change),
                         _form_date_input("Date of Incorporation", PortalState.form_llp_doi, PortalState.handle_form_llp_doi_change),
@@ -4781,6 +4911,7 @@ def edit_llp_dialog() -> rx.Component:
                         columns="2", spacing="3", width="100%",
                     ),
                     rx.cond(~PortalState.edit_form_llp_is_non_client,rx.vstack(
+                    _form_input("PAN", "e.g. AAAAA0000A", PortalState.edit_form_llp_pan, PortalState.handle_edit_form_llp_pan_change),
                     rx.grid(
                         _form_input("ROC Name", "e.g. ROC Bangalore", PortalState.edit_form_llp_roc_name, PortalState.handle_edit_form_llp_roc_name_change),
                         _form_date_input("Date of Incorporation", PortalState.edit_form_llp_doi, PortalState.handle_edit_form_llp_doi_change),
@@ -4872,6 +5003,7 @@ def llps_table() -> rx.Component:
             rx.table.row(
                 rx.table.column_header_cell("LLPIN", font_weight="700", color="white", font_size="0.95rem"),
                 rx.table.column_header_cell("LLP Name", font_weight="700", color="white", font_size="0.95rem"),
+                rx.table.column_header_cell("PAN", font_weight="700", color="white", font_size="0.95rem"),
                 rx.table.column_header_cell("ROC Name", font_weight="700", color="white", font_size="0.95rem"),
                 rx.table.column_header_cell("Date of Incorp.", font_weight="700", color="white", font_size="0.95rem"),
                 rx.table.column_header_cell("Email", font_weight="700", color="white", font_size="0.95rem"),
@@ -4886,6 +5018,7 @@ def llps_table() -> rx.Component:
                 lambda item: rx.table.row(
                     rx.table.cell(rx.text(item["llpin"], font_weight="600", color="#1a1a1a", size="3")),
                     rx.table.cell(rx.text(item["name"], font_weight="500", color="#333", size="3")),
+                    rx.table.cell(rx.text(item["pan"], color="#555", size="2")),
                     rx.table.cell(
                         rx.cond(
                             item["roc_name"] != "",

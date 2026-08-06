@@ -51,6 +51,7 @@ class Company(Base):
     name: Mapped[str] = mapped_column(String(140), nullable=False)
     company_type: Mapped[str] = mapped_column(String(80), nullable=False)
     company_class: Mapped[str] = mapped_column(String(120), nullable=False)
+    pan: Mapped[str | None] = mapped_column(String(20), nullable=True)
     non_client: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("0"), default=False)
     sub_category: Mapped[str | None] = mapped_column(String(120), nullable=True)
     status: Mapped[str] = mapped_column(String(40), default="active", nullable=False)
@@ -113,6 +114,7 @@ class LLP(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     llpin: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(140), nullable=False)
+    pan: Mapped[str | None] = mapped_column(String(20), nullable=True)
     status: Mapped[str] = mapped_column(String(40), default="active", nullable=False)
     non_client: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("0"), default=False)
     updated_at: Mapped[str] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
@@ -166,6 +168,7 @@ def init_db() -> None:
         cols = [row[1] for row in conn.execute(text("PRAGMA table_info(companies)")).fetchall()]
         migrations = [
             ("sub_category", "ALTER TABLE companies ADD COLUMN sub_category VARCHAR(120)"),
+            ("pan", "ALTER TABLE companies ADD COLUMN pan VARCHAR(20)"),
             ("non_client", "ALTER TABLE companies ADD COLUMN non_client BOOLEAN NOT NULL DEFAULT 0"),
             ("date_of_incorporation", "ALTER TABLE companies ADD COLUMN date_of_incorporation VARCHAR(20)"),
             ("email", "ALTER TABLE companies ADD COLUMN email VARCHAR(254)"),
@@ -211,6 +214,7 @@ def init_db() -> None:
         # Migrate: add non_client to llps table when missing
         llp_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(llps)")).fetchall()]
         llp_migrations = [
+            ("pan", "ALTER TABLE llps ADD COLUMN pan VARCHAR(20)"),
             ("non_client", "ALTER TABLE llps ADD COLUMN non_client BOOLEAN NOT NULL DEFAULT 0"),
         ]
         for col_name, ddl in llp_migrations:
