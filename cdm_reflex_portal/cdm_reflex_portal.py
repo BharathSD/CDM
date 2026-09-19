@@ -18,6 +18,8 @@ from .database import (
     hash_password,
     init_db,
     verify_password,
+    ShareCapital,
+    ShareCapitalDetails,
 )
 
 init_db()
@@ -281,6 +283,35 @@ class PortalState(rx.State):
     edit_user_form_password: str = ""
     edit_user_form_error: str = ""
 
+    # ── Share Capital ─────────────────────────────────────────
+    share_capital_company_id: str = ""
+    form_capital_type: str = ""
+    show_share_capital: bool = False
+    share_capital_type: str = "EQUITY"
+
+    # Equity / Preference - Overall
+    share_capital_authorized_shares: int = 0
+    share_capital_paid_up_shares: int = 0
+    share_capital_authorized_amount: int = 0
+    share_capital_paid_up_amount: int = 0
+
+    # Class A
+    show_class_a: bool = False
+    share_capital_a_authorized_shares: int = 0
+    share_capital_a_paid_up_shares: int = 0
+    share_capital_a_authorized_nominal: int = 0
+    share_capital_a_paid_up_nominal: int = 0
+    share_capital_a_authorized_amount: int = 0
+    share_capital_a_paid_up_amount: int = 0
+
+    # Class B
+    show_class_b: bool = False
+    share_capital_b_authorized_shares: int = 0
+    share_capital_b_paid_up_shares: int = 0
+    share_capital_b_authorized_nominal: int = 0
+    share_capital_b_paid_up_nominal: int = 0
+    share_capital_b_authorized_amount: int = 0
+    share_capital_b_paid_up_amount: int = 0
     # ── Internal helpers ──────────────────────────────────────────────────────
 
     def _clear_form(self) -> None:
@@ -761,6 +792,104 @@ class PortalState(rx.State):
                 for r in rows
             ]
 
+    def load_share_capital(self, company_id: str,capital_type: str):
+        with SessionLocal() as session:
+
+            rows = (
+                session.query(ShareCapital, ShareCapitalDetails)
+                .join(
+                Company,
+                Company.id == ShareCapital.company_id
+            )
+            .join(
+                ShareCapitalDetails,
+                ShareCapitalDetails.share_capital_id == ShareCapital.id
+            )
+            .filter(Company.id == company_id,
+                    ShareCapital.capital_type == capital_type)
+            .all()
+        )
+       
+        if not rows:
+            return
+
+        # All rows have the same ShareCapital
+        share_capital = rows[0][0]
+
+        self.share_capital_type = share_capital.capital_type or ""
+
+        for share_capital, detail in rows:
+
+            if detail.class_type == "OVERALL":
+
+                self.share_capital_authorized_shares = (
+                    detail.authorized_shares or ""
+                )
+
+                self.share_capital_paid_up_shares = (
+                    detail.paid_up_shares or ""
+                )
+
+                self.share_capital_authorized_amount = (
+                    detail.authorized_total_amount or ""
+                )
+
+                self.share_capital_paid_up_amount = (
+                    detail.paid_up_total_amount or ""
+                )
+
+            elif detail.class_type == "CLASS_A":
+
+                self.share_capital_a_authorized_shares = (
+                    detail.authorized_shares or 0
+                )
+
+                self.share_capital_a_paid_up_shares = (
+                    detail.paid_up_shares or 0
+                )
+
+                self.share_capital_a_authorized_nominal = (
+                    detail.authorized_nominal_value or 0
+                )
+
+                self.share_capital_a_paid_up_nominal = (
+                    detail.paid_up_nominal_value or 0
+                )
+
+                self.share_capital_a_authorized_amount = (
+                    detail.authorized_total_amount or 0
+                )
+
+                self.share_capital_a_paid_up_amount = (
+                    detail.paid_up_total_amount or 0
+                )
+
+            elif detail.class_type == "CLASS_B":
+
+                self.share_capital_b_authorized_shares = (
+                    detail.authorized_shares or 0
+                )
+
+                self.share_capital_b_paid_up_shares = (
+                    detail.paid_up_shares or 0
+                )
+
+                self.share_capital_b_authorized_nominal = (
+                    detail.authorized_nominal_value or 0
+                )
+
+                self.share_capital_b_paid_up_nominal = (
+                    detail.paid_up_nominal_value or 0
+                )
+
+                self.share_capital_b_authorized_amount = (
+                    detail.authorized_total_amount or 0
+                )
+
+                self.share_capital_b_paid_up_amount = (
+                    detail.paid_up_total_amount or 0
+                )
+
     def confirm_delete(self, company_id: str):
         if self.role != "ADMIN":
             self.error_message = "Only admins can delete companies."
@@ -852,6 +981,16 @@ class PortalState(rx.State):
                 self.edit_form_country = c["country"]
                 break
         self.show_edit_company_form = True
+
+    def toggle_class_a(self):
+        self.show_class_a = not self.show_class_a
+
+    def toggle_class_b(self):
+        self.show_class_b = not self.show_class_b
+
+
+    def add_class_b(self):
+        self.show_class_b = True
 
     def close_edit_company_form(self):
         self._clear_edit_company_form()
@@ -1276,7 +1415,235 @@ class PortalState(rx.State):
             extra["suspended"], extra["pin_code"], extra["phone"], extra["country"],
             extra["non_client"],
         )
+    def save_share_capital(self):
+        if self.role not in ("ADMIN", "EDITOR"):
+            self.form_error = "You do not have permission to add share capital details."
+            return
 
+        company_id = self.share_capital_company_id.strip()
+        capital_type = self.share_capital_type.strip()
+
+        if not company_id:
+            self.form_error = "Company ID is required."
+            return
+
+        if not capital_type:
+            self.form_error = "Capital Type is required."
+            return
+
+        details = [
+            {
+                "class_type": "OVERALL",
+                "authorized_shares": self.share_capital_authorized_shares,
+                "paid_up_shares": self.share_capital_paid_up_shares,
+                "authorized_total_amount": self.share_capital_authorized_amount,
+                "paid_up_total_amount": self.share_capital_paid_up_amount,
+            },
+            {
+                "class_type": "CLASS_A",
+                "authorized_shares": self.share_capital_a_authorized_shares,
+                "paid_up_shares": self.share_capital_a_paid_up_shares,
+                "authorized_nominal_value": self.share_capital_a_authorized_nominal,
+                "paid_up_nominal_value": self.share_capital_a_paid_up_nominal,
+                "authorized_total_amount": self.share_capital_a_authorized_amount,
+                "paid_up_total_amount": self.share_capital_a_paid_up_amount,
+            },
+            {
+                "class_type": "CLASS_B",
+                "authorized_shares": self.share_capital_b_authorized_shares,
+                "paid_up_shares": self.share_capital_b_paid_up_shares,
+                "authorized_nominal_value": self.share_capital_b_authorized_nominal,
+                "paid_up_nominal_value": self.share_capital_b_paid_up_nominal,
+                "authorized_total_amount": self.share_capital_b_authorized_amount,
+                "paid_up_total_amount": self.share_capital_b_paid_up_amount,
+            },
+        ]
+
+        self._clear_form()
+        self.is_saving = True
+
+        return PortalState.commit_save_share_capital(
+            company_id,
+            capital_type,
+            details,
+        )
+    
+    
+    def commit_save_share_capital(
+        self,
+        id: str,
+        capital_type: str,
+        details: list[dict],
+    ):
+    
+
+        def _int(v):
+            return int(v) if v not in (None, "") else None
+
+        def _decimal(v):
+            return float(v) if v not in (None, "") else None
+
+        with SessionLocal() as session:
+
+            # ---------------------------------------------------------
+            # Check if company exists
+            # ---------------------------------------------------------
+            company = session.query(Company).filter(
+                Company.id == id
+            ).first()
+
+            if not company:
+                self.error_message = f"No company found '{id}'."
+                self.is_saving = False
+                return
+
+            # ---------------------------------------------------------
+            # Get existing ShareCapital
+            # based on company_id + capital_type
+            # ---------------------------------------------------------
+            share_capital = session.query(ShareCapital).filter(
+                ShareCapital.company_id == id,
+                ShareCapital.capital_type == capital_type,
+            ).first()
+            
+            
+            if share_capital:
+                # Existing record
+                share_capital.update_dt = func.current_timestamp()
+
+                print(
+                    "Existing ShareCapital:",
+                    share_capital.id,
+                    share_capital.capital_type,
+                )
+
+            else:
+                # New record
+                share_capital = ShareCapital(
+                    company_id=id,
+                    capital_type=capital_type,
+                )
+
+                session.add(share_capital)
+                session.flush()
+
+                print(
+                    "New ShareCapital created:",
+                    share_capital.id,
+                )
+
+            # ---------------------------------------------------------
+            # Make sure ID is available
+            # ---------------------------------------------------------
+            session.flush()
+
+            # ---------------------------------------------------------
+            # Add / update ShareCapitalDetails
+            # ---------------------------------------------------------
+            for detail in details:
+
+                class_type = detail.get("class_type")
+
+                existing_detail = session.query(
+                    ShareCapitalDetails
+                ).filter(
+                    ShareCapitalDetails.share_capital_id == share_capital.id,
+                    ShareCapitalDetails.class_type == class_type,
+                ).first()
+
+                if existing_detail:
+
+                    # ---------------------------------------------
+                    # Update existing detail
+                    # ---------------------------------------------
+                    existing_detail.authorized_shares = _int(
+                        detail.get("authorized_shares")
+                    )
+
+                    existing_detail.paid_up_shares = _int(
+                        detail.get("paid_up_shares")
+                    )
+
+                    existing_detail.authorized_nominal_value = _decimal(
+                        detail.get("authorized_nominal_value")
+                    )
+
+                    existing_detail.paid_up_nominal_value = _decimal(
+                        detail.get("paid_up_nominal_value")
+                    )
+
+                    existing_detail.authorized_total_amount = _decimal(
+                        detail.get("authorized_total_amount")
+                    )
+
+                    existing_detail.paid_up_total_amount = _decimal(
+                        detail.get("paid_up_total_amount")
+                    )
+
+                    print(
+                        "Updated ShareCapitalDetails:",
+                        class_type,
+                    )
+
+                else:
+
+                    # ---------------------------------------------
+                    # Create new detail
+                    # ---------------------------------------------
+                    session.add(
+                        ShareCapitalDetails(
+                            share_capital_id=share_capital.id,
+                            class_type=class_type,
+
+                            authorized_shares=_int(
+                                detail.get("authorized_shares")
+                            ),
+
+                            paid_up_shares=_int(
+                                detail.get("paid_up_shares")
+                            ),
+
+                            authorized_nominal_value=_decimal(
+                                detail.get("authorized_nominal_value")
+                            ),
+
+                            paid_up_nominal_value=_decimal(
+                                detail.get("paid_up_nominal_value")
+                            ),
+
+                            authorized_total_amount=_decimal(
+                                detail.get("authorized_total_amount")
+                            ),
+
+                            paid_up_total_amount=_decimal(
+                                detail.get("paid_up_total_amount")
+                            ),
+                        )
+                    )
+
+                    print(
+                        "Created ShareCapitalDetails:",
+                        class_type,
+                    )
+
+            # ---------------------------------------------------------
+            # Commit
+            # ---------------------------------------------------------
+            session.commit()
+
+        # -------------------------------------------------------------
+        # Successful save
+        # -------------------------------------------------------------
+        self.is_saving = False
+
+        # # Refresh
+        
+        # self.load_share_capital(id,capital_type)
+
+        # Close popup and reset Class A/B state
+        self.close_share_capital()
+
+    
     def commit_save(
         self,
         cin: str,
@@ -1794,6 +2161,134 @@ class PortalState(rx.State):
                 break
         self.show_manage_directors = True
         self._load_company_directors()
+
+    # ── Share capital management ─────────────────────────────────────────────
+    def set_share_capital_authorized_shares(self, value: str):
+        self.share_capital_authorized_shares = int(value) if value else 0
+
+    def set_share_capital_paid_up_shares(self, value: str):
+        self.share_capital_paid_up_shares = int(value) if value else 0
+
+
+    def set_share_capital_authorized_amount(self, value: str):
+        self.share_capital_authorized_amount = int(value) if value else 0
+
+
+    def set_share_capital_paid_up_amount(self, value: str):
+        self.share_capital_paid_up_amount = int(value) if value else 0
+
+
+
+    def set_share_capital_a_authorized_shares(self, value: str):
+        self.share_capital_a_authorized_shares = int(value) if value else 0
+
+
+    def set_share_capital_a_paid_up_shares(self, value: str):
+        self.share_capital_a_paid_up_shares = int(value) if value else 0
+
+
+    def set_share_capital_a_authorized_nominal(self, value: str):
+        self.share_capital_a_authorized_nominal = int(value) if value else 0
+
+
+    def set_share_capital_a_paid_up_nominal(self, value: str):
+        self.share_capital_a_paid_up_nominal = int(value) if value else 0
+
+
+    def set_share_capital_a_authorized_amount(self, value: str):
+        self.share_capital_a_authorized_amount = int(value) if value else 0
+
+    def set_share_capital_a_paid_up_amount(self, value: str):
+        self.share_capital_a_paid_up_amount = int(value) if value else 0
+
+
+
+    def set_share_capital_b_authorized_shares(self, value: str):
+        self.share_capital_b_authorized_shares = int(value) if value else 0
+
+
+    def set_share_capital_b_paid_up_shares(self, value: str):
+        self.share_capital_b_paid_up_shares = int(value) if value else 0
+
+
+    def set_share_capital_b_authorized_nominal(self, value: str):
+        self.share_capital_b_authorized_nominal = int(value) if value else 0
+
+
+    def set_share_capital_b_paid_up_nominal(self, value: str):
+        self.share_capital_b_paid_up_nominal = int(value) if value else 0
+
+
+    def set_share_capital_b_authorized_amount(self, value: str):
+        self.share_capital_b_authorized_amount = int(value) if value else 0
+
+    def set_share_capital_b_paid_up_amount(self, value: str):
+     self.share_capital_b_paid_up_amount = int(value) if value else 0
+
+    def reset_share_capital_form(self):
+        self.share_capital_type = ""
+
+        self.share_capital_authorized_shares = 0
+        self.share_capital_paid_up_shares = 0
+        self.share_capital_authorized_amount = 0
+        self.share_capital_paid_up_amount = 0
+
+        self.share_capital_a_authorized_shares = 0
+        self.share_capital_a_paid_up_shares = 0
+        self.share_capital_a_authorized_nominal = 0
+        self.share_capital_a_paid_up_nominal = 0
+        self.share_capital_a_authorized_amount = 0
+        self.share_capital_a_paid_up_amount = 0
+
+        self.share_capital_b_authorized_shares = 0
+        self.share_capital_b_paid_up_shares = 0
+        self.share_capital_b_authorized_nominal = 0
+        self.share_capital_b_paid_up_nominal = 0
+        self.share_capital_b_authorized_amount = 0
+        self.share_capital_b_paid_up_amount = 0
+
+     
+    # def open_share_capital(self, company_id: str, capital_type: str):
+    #     self.share_capital_company_id = company_id
+
+    #     self.reset_share_capital_form()
+    #     # Fetch existing data
+    #     rows = self.load_share_capital(company_id,capital_type)
+    #     self.show_share_capital = True
+
+    def open_share_capital(self, company_id: str):
+        self.share_capital_company_id = company_id
+    
+        self.reset_share_capital_form()
+        self.share_capital_type = "EQUITY"
+
+        self.load_share_capital(
+            company_id,
+            self.share_capital_type,
+        )
+
+        self.show_share_capital = True
+
+
+    def close_share_capital(self):
+        self.show_share_capital = False
+        self.show_class_a = False
+        self.show_class_b = False
+
+    def set_share_capital_type(self, value: str):
+            print("Selected:", repr(value))
+            if value == "Equity Share Capital":
+                self.share_capital_type = "EQUITY"
+            elif value == "Preference Share Capital":
+                self.share_capital_type = "PREFERENCE"
+            else:
+                return
+
+            self.load_share_capital(
+                self.share_capital_company_id,
+                self.share_capital_type
+            )
+
 
     def close_manage_directors(self):
         self._clear_manage_directors()
@@ -3438,6 +3933,351 @@ def edit_company_dialog() -> rx.Component:
         ),
     )
 
+def share_capital_dialog() -> rx.Component:
+    return rx.dialog.root(
+        rx.dialog.content(
+            rx.vstack(
+                # ── Header ─────────────────────────────────────
+                rx.hstack(
+                    rx.icon(
+                        "landmark",
+                        size=24,
+                        color="#667eea",
+                    ),
+                    rx.dialog.title(
+                        "Share Capital",
+                        size="5",
+                        weight="bold",
+                    ),
+                    spacing="2",
+                    align_items="center",
+                ),
+
+                rx.divider(),
+
+                # ── Share Capital Type ─────────────────────────
+                rx.vstack(
+                    rx.text(
+                        "Share Capital Type",
+                        size="2",
+                        weight="bold",
+                        color="#555",
+                    ),
+
+                    rx.select(
+                        [
+                            "Equity Share Capital",
+                            "Preference Share Capital",
+                        ],
+                        value=rx.cond(
+                            PortalState.share_capital_type == "EQUITY",
+                            "Equity Share Capital",
+                            "Preference Share Capital",
+                        ),
+                        on_change=PortalState.set_share_capital_type,
+                        width="100%",
+                    ),
+
+                    spacing="1",
+                    width="100%",
+                ),
+
+                # ── Overall Capital ───────────────────────────
+                rx.vstack(
+                    rx.text(
+                        rx.cond(
+                            PortalState.share_capital_type == "EQUITY",
+                            "Equity Share Capital",
+                            "Preference Share Capital",
+                        ),
+                        size="4",
+                        weight="bold",
+                        color="#333",
+                    ),
+
+                    rx.text(
+                        "Overall Share Capital",
+                        size="3",
+                        weight="bold",
+                        color="#667eea",
+                    ),
+
+                    rx.grid(
+                        rx.text(
+                            "",
+                            weight="bold",
+                        ),
+                        rx.text(
+                            "Authorized Capital",
+                            weight="bold",
+                            align="center",
+                        ),
+                        rx.text(
+                            "Paid Up Capital",
+                            weight="bold",
+                            align="center",
+                        ),
+
+                        rx.text(
+                            rx.cond(
+                                PortalState.share_capital_type == "EQUITY",
+                                "No. of Equity Shares",
+                                "No. of Preference Shares",
+                            ),
+                            size="2",
+                        ),
+
+                        rx.input(
+                            value=PortalState.share_capital_authorized_shares,
+                            on_change=PortalState.set_share_capital_authorized_shares,
+                            type="number",
+                            placeholder="Enter number",
+                        ),
+
+                        rx.input(
+                            value=PortalState.share_capital_paid_up_shares,
+                            on_change=PortalState.set_share_capital_paid_up_shares,
+                            type="number",
+                            placeholder="Enter number",
+                        ),
+
+                        rx.text(
+                            "Total Amount",
+                            size="2",
+                        ),
+
+                        rx.input(
+                            value=PortalState.share_capital_authorized_amount,
+                            on_change=PortalState.set_share_capital_authorized_amount,
+                            type="number",
+                            placeholder="Enter amount",
+                        ),
+
+                        rx.input(
+                            value=PortalState.share_capital_paid_up_amount,
+                            on_change=PortalState.set_share_capital_paid_up_amount,
+                            type="number",
+                            placeholder="Enter amount",
+                        ),
+
+                        columns="3",
+                        spacing="3",
+                        width="100%",
+                    ),
+
+                    spacing="3",
+                    width="100%",
+                ),
+
+                rx.divider(),
+
+                # ── Class A ────────────────────────────────────
+                rx.hstack(
+                    rx.button("Class A",
+                              on_click=PortalState.toggle_class_a,
+                              color_scheme="violet",
+                              variant="outline",
+                              size="1"
+                    )
+                ),
+                rx.cond(
+                        PortalState.show_class_a,
+                        share_capital_class_section("Class A", "A"),
+                        rx.fragment(),
+                ),
+
+                # share_capital_class_section(
+                #     "Class A",
+                #     "A",
+                # ),
+
+                rx.divider(),
+
+                # ── Class B ────────────────────────────────────
+                # share_capital_class_section(
+                #     "Class B",
+                #     "B",
+                # ),
+
+                rx.hstack(
+                    rx.button("Class B",
+                               on_click=PortalState.toggle_class_b,
+                                              color_scheme="violet",
+                                              variant="outline",
+                                              size="1"
+                                    )
+                                ),
+                                rx.cond(
+                                        PortalState.show_class_b,
+                                        share_capital_class_section("Class B", "B"),
+                                        rx.fragment(),
+                                ),
+
+                # ── Buttons ────────────────────────────────────
+                rx.hstack(
+                    rx.button(
+                        "Cancel",
+                        on_click=PortalState.close_share_capital,
+                        variant="outline",
+                        color_scheme="gray",
+                    ),
+
+                    rx.button(
+                        rx.hstack(
+                            rx.icon("save", size=16),
+                            rx.text("Save Share Capital"),
+                            spacing="2",
+                        ),
+                        on_click=PortalState.save_share_capital,
+                        color_scheme="violet",
+                    ),
+
+                    spacing="3",
+                    justify="end",
+                    width="100%",
+                ),
+
+                spacing="4",
+                width="100%",
+            ),
+
+            max_width="800px",
+            width="95%",
+            max_height="90vh",
+            overflow_y="auto",
+            background="white",
+        ),
+
+        open=PortalState.show_share_capital,
+    )
+def share_capital_class_section(
+    title: str,
+    class_name: str,
+) -> rx.Component:
+
+    if class_name == "A":
+        authorized_shares = PortalState.share_capital_a_authorized_shares
+        paid_up_shares = PortalState.share_capital_a_paid_up_shares
+        authorized_nominal = PortalState.share_capital_a_authorized_nominal
+        paid_up_nominal = PortalState.share_capital_a_paid_up_nominal
+        authorized_amount = PortalState.share_capital_a_authorized_amount
+        paid_up_amount = PortalState.share_capital_a_paid_up_amount
+
+        on_authorized_shares = PortalState.set_share_capital_a_authorized_shares
+        on_paid_up_shares = PortalState.set_share_capital_a_paid_up_shares
+        on_authorized_nominal = PortalState.set_share_capital_a_authorized_nominal
+        on_paid_up_nominal = PortalState.set_share_capital_a_paid_up_nominal
+        on_authorized_amount = PortalState.set_share_capital_a_authorized_amount
+        on_paid_up_amount = PortalState.set_share_capital_a_paid_up_amount
+
+    else:
+        authorized_shares = PortalState.share_capital_b_authorized_shares
+        paid_up_shares = PortalState.share_capital_b_paid_up_shares
+        authorized_nominal = PortalState.share_capital_b_authorized_nominal
+        paid_up_nominal = PortalState.share_capital_b_paid_up_nominal
+        authorized_amount = PortalState.share_capital_b_authorized_amount
+        paid_up_amount = PortalState.share_capital_b_paid_up_amount
+
+        on_authorized_shares = PortalState.set_share_capital_b_authorized_shares
+        on_paid_up_shares = PortalState.set_share_capital_b_paid_up_shares
+        on_authorized_nominal = PortalState.set_share_capital_b_authorized_nominal
+        on_paid_up_nominal = PortalState.set_share_capital_b_paid_up_nominal
+        on_authorized_amount = PortalState.set_share_capital_b_authorized_amount
+        on_paid_up_amount = PortalState.set_share_capital_b_paid_up_amount
+
+    return rx.vstack(
+        rx.text(
+            title,
+            size="3",
+            weight="bold",
+            color="#667eea",
+        ),
+
+        rx.grid(
+            rx.text(""),
+            rx.text(
+                "Authorized Capital",
+                weight="bold",
+                align="center",
+            ),
+            rx.text(
+                "Paid Up Capital",
+                weight="bold",
+                align="center",
+            ),
+
+            # No. of Shares
+            rx.text(
+                rx.cond(
+                    PortalState.share_capital_type == "EQUITY",
+                    "No. of Equity Shares",
+                    "No. of Preference Shares",
+                ),
+                size="2",
+            ),
+
+            rx.input(
+                value=authorized_shares,
+                on_change=on_authorized_shares,
+                type="number",
+                placeholder="Enter number",
+            ),
+
+            rx.input(
+                value=paid_up_shares,
+                on_change=on_paid_up_shares,
+                type="number",
+                placeholder="Enter number",
+            ),
+
+            # Nominal Value
+            rx.text(
+                "Nominal Value per share",
+                size="2",
+            ),
+
+            rx.input(
+                value=authorized_nominal,
+                on_change=on_authorized_nominal,
+                type="number",
+                placeholder="Enter value",
+            ),
+
+            rx.input(
+                value=paid_up_nominal,
+                on_change=on_paid_up_nominal,
+                type="number",
+                placeholder="Enter value",
+            ),
+
+            # Total Amount
+            rx.text(
+                "Total Amount",
+                size="2",
+            ),
+
+            rx.input(
+                value=authorized_amount,
+                on_change=on_authorized_amount,
+                type="number",
+                placeholder="Enter amount",
+            ),
+
+            rx.input(
+                value=paid_up_amount,
+                on_change=on_paid_up_amount,
+                type="number",
+                placeholder="Enter amount",
+            ),
+
+            columns="3",
+            spacing="3",
+            width="100%",
+        ),
+
+        spacing="3",
+        width="100%",
+    )
 
 def companies_table() -> rx.Component:
     return rx.table.root(
@@ -3476,6 +4316,14 @@ def companies_table() -> rx.Component:
                     ),
                     rx.table.cell(
                         rx.hstack(
+                            rx.button(
+                               rx.icon("landmark", size=14),
+                               on_click=PortalState.open_share_capital(item["id"]),
+                               color_scheme="orange",
+                               variant="ghost",
+                               size="1",
+                            ),
+
                             rx.button(
                                 rx.icon("users", size=14),
                                 on_click=PortalState.open_manage_directors(item["id"]),
@@ -6235,6 +7083,7 @@ def dashboard_page() -> rx.Component:
         manage_llp_companies_dialog(),
         add_user_dialog(),
         edit_user_dialog(),
+        share_capital_dialog(),
         background="#f5f7fa",
         width="100%",
         padding="0",
