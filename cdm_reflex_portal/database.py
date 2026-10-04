@@ -3,9 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 
 import bcrypt
-from sqlalchemy import Boolean, DateTime, Float, Integer,Numeric,String, Text, UniqueConstraint,ForeignKey,UniqueConstraint, create_engine, func, text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine, func, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
-from datetime import datetime,timezone
+from datetime import datetime, timezone
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 def _normalize_bool_flag(value) -> bool:
     if isinstance(value, bool):
@@ -157,7 +161,7 @@ class ShareCapital(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
 
-    company_id: Mapped[str] = mapped_column(
+    company_id: Mapped[int] = mapped_column(
         ForeignKey("companies.id"),
         nullable=False
     )
@@ -168,13 +172,13 @@ class ShareCapital(Base):
     )
 
     create_dt: Mapped[datetime] = mapped_column(
-        default=datetime.now(timezone.utc),
+        default=_utcnow,
         nullable=False
     )
 
     update_dt: Mapped[datetime] = mapped_column(
-        default=datetime.now(timezone.utc),
-        onupdate=datetime.now(timezone.utc),
+        default=_utcnow,
+        onupdate=_utcnow,
         nullable=False
     )
 
@@ -207,22 +211,22 @@ class ShareCapitalDetails(Base):
     )
 
     authorized_nominal_value: Mapped[float | None] = mapped_column(
-        Integer,
+        Float,
         nullable=True
     )
 
     paid_up_nominal_value: Mapped[float | None] = mapped_column(
-        Integer,
+        Float,
         nullable=True
     )
 
     authorized_total_amount: Mapped[float | None] = mapped_column(
-        Integer,
+        Float,
         nullable=True
     )
 
     paid_up_total_amount: Mapped[float | None] = mapped_column(
-        Integer,
+        Float,
         nullable=True
     )
 
@@ -472,6 +476,8 @@ class ShareholderMaster(Base):
         nullable=False,
         default=True
     )
+
+
 def hash_password(value: str) -> str:
     return bcrypt.hashpw(value.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
