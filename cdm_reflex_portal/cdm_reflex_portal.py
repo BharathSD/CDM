@@ -18,30 +18,68 @@ from .database import (
     hash_password,
     init_db,
     verify_password,
+    ShareCapital,
+    ShareCapitalDetails,
+    AuditorMaster,
+    ShareholderMaster,
 )
 
 init_db()
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", re.IGNORECASE)
 _ISO_DATE_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
-
+_CIN_RE = re.compile(r"^[LU]\d{5}[A-Z]{2}\d{4}[A-Z]{3}\d{6}$")
+_LLPIN_RE = re.compile(r"^[A-Z]{3}-?\d{4}$")
 
 def _parse_doi(value: str) -> bool:
-    """Return True if value is a valid calendar date in DD/MM/YYYY format."""
+    """Return True for a valid ISO date (YYYY-MM-DD) that is not in the future."""
     try:
-        datetime.strptime(value, "%d/%m/%Y")
-        return True
-    except ValueError:
+        parsed = datetime.strptime(value.strip(), "%Y-%m-%d").date()
+        return parsed <= datetime.today().date()
+    except (TypeError, ValueError):
         return False
 
 
-def _format_date(value: str | None) -> str:
-    """Convert YYYY-MM-DD (from DB / old picker) to DD/MM/YYYY for display."""
+def is_valid_cin(cin: str) -> bool:
+    return bool(_CIN_RE.fullmatch(cin.strip().upper()))
+
+
+def is_valid_llpin(llpin: str) -> bool:
+    return bool(_LLPIN_RE.fullmatch(llpin.strip().upper()))
+
+
+def _normalize_date(value: str | None) -> str:
+    """Normalize ISO or legacy DD/MM/YYYY/DD-MM-YYYY values to ISO YYYY-MM-DD."""
     if not value:
         return ""
-    m = _ISO_DATE_RE.match(value)
-    if m:
-        return f"{m.group(3)}/{m.group(2)}/{m.group(1)}"
+    value = str(value).strip()
+    if not value:
+        return ""
+    if _ISO_DATE_RE.fullmatch(value):
+        return value
+    for pattern in (r"^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$",):
+        m = re.match(pattern, value)
+        if m:
+            try:
+                parsed = datetime.strptime(
+                    f"{m.group(1).zfill(2)}/{m.group(2).zfill(2)}/{m.group(3)}",
+                    "%d/%m/%Y",
+                )
+                return parsed.strftime("%Y-%m-%d")
+            except ValueError:
+                return ""
+    return ""
+
+
+def _format_date(value: str | None) -> str:
+    """Return dates in the single application-wide ISO format."""
+    return _normalize_date(value)
+
+
+def _input_date_value(value):
+    """Return a date-input-safe ISO value; supports Reflex Vars and legacy strings."""
+    if isinstance(value, str):
+        return _normalize_date(value)
     return value
 
 
@@ -74,6 +112,7 @@ class PortalState(rx.State):
     is_non_client: bool = False
     form_cin: str = ""
     form_name: str = ""
+    form_pan: str = ""
     form_class: str = ""
     form_category: str = ""
     form_sub_category: str = ""
@@ -97,6 +136,7 @@ class PortalState(rx.State):
     form_pin_code: str = ""
     form_phone: str = ""
     form_country: str = ""
+    visible_company_id: str = ""
 
     # ── Edit-company form ─────────────────────────────────────────────────────
     show_edit_company_form: bool = False
@@ -104,6 +144,7 @@ class PortalState(rx.State):
     edit_company_id: str = ""
     edit_form_cin: str = ""
     edit_form_name: str = ""
+    edit_form_pan: str = ""
     edit_form_class: str = ""
     edit_form_category: str = ""
     edit_form_sub_category: str = ""
@@ -127,6 +168,7 @@ class PortalState(rx.State):
     edit_form_pin_code: str = ""
     edit_form_phone: str = ""
     edit_form_country: str = ""
+    edit_company_tab: str = "company"
 
     # ── Directors ─────────────────────────────────────────────────────────────
     directors: list[dict] = []
@@ -180,6 +222,7 @@ class PortalState(rx.State):
     form_llp_is_non_client: bool = False
     form_llpin: str = ""
     form_llp_name: str = ""
+    form_llp_pan: str = ""
     form_llp_roc_name: str = ""
     form_llp_doi: str = ""
     form_llp_email: str = ""
@@ -197,6 +240,7 @@ class PortalState(rx.State):
     edit_llp_id: str = ""
     edit_form_llpin: str = ""
     edit_form_llp_name: str = ""
+    edit_form_llp_pan: str = ""
     edit_form_llp_roc_name: str = ""
     edit_form_llp_doi: str = ""
     edit_form_llp_email: str = ""
@@ -252,7 +296,204 @@ class PortalState(rx.State):
     edit_user_form_password: str = ""
     edit_user_form_error: str = ""
 
+    # ── Share Capital ─────────────────────────────────────────
+    share_capital_company_id: str = ""
+    form_capital_type: str = ""
+    show_share_capital: bool = False
+    share_capital_type: str = "EQUITY"
+
+    # Equity / Preference - Overall
+    share_capital_authorized_shares: str = ""
+    share_capital_paid_up_shares: str = ""
+    share_capital_authorized_amount: str = ""
+    share_capital_paid_up_amount: str = ""
+
+    # Class A
+    show_class_a: bool = False
+    share_capital_a_authorized_shares: str = ""
+    share_capital_a_paid_up_shares: str = ""
+    share_capital_a_authorized_nominal: str = ""
+    share_capital_a_paid_up_nominal: str = ""
+    share_capital_a_authorized_amount: str = ""
+    share_capital_a_paid_up_amount: str = ""
+
+    # Class B
+    show_class_b: bool = False
+    share_capital_b_authorized_shares: str = ""
+    share_capital_b_paid_up_shares: str = ""
+    share_capital_b_authorized_nominal: str = ""
+    share_capital_b_paid_up_nominal: str = ""
+    share_capital_b_authorized_amount: str = ""
+    share_capital_b_paid_up_amount: str = ""
+
+
+    # Auditor Master
+
+    # Auditor details
+    edit_auditor_srn: str = ""
+    edit_auditor_category: str = "Individual"
+
+    edit_auditor_firm_name: str = ""
+    edit_auditor_firm_membership_no: str = ""
+    edit_auditor_firm_pan: str = ""
+    edit_auditor_firm_email: str = ""
+
+    edit_auditor_address: str = ""
+    edit_auditor_country: str = ""
+    edit_auditor_state: str = ""
+    edit_auditor_city: str = ""
+    edit_auditor_pin_code: str = ""
+
+    edit_auditor_partner_membership_no: str = ""
+    edit_auditor_name: str = ""
+    edit_auditor_pan: str = ""
+    edit_auditor_mobile: str = ""
+    edit_auditor_email: str = ""
+    edit_auditor_designation: str = ""
+
+    # Shareholder Master
+
+    edit_shareholder_id: str = ""
+
+    edit_shareholder_name: str = ""
+    edit_shareholder_address: str = ""
+    edit_shareholder_email: str = ""
+    edit_shareholder_registration_number_cin: str = ""
+    edit_shareholder_father_mother_spouse_name: str = ""
+    edit_shareholder_status: str = ""
+    edit_shareholder_occupation: str = ""
+    edit_shareholder_pan: str = ""
+    edit_shareholder_nationality: str = ""
+
+    edit_shareholder_date_of_becoming_member: str = ""
+    edit_shareholder_date_of_declaration_u_s_89: str = ""
+    edit_shareholder_beneficial_owner_name_address: str = ""
+    edit_shareholder_date_of_receipt_of_nomination: str = ""
+    edit_shareholder_nominee_name_address: str = ""
+    edit_shareholder_date_of_cessation_of_membership: str = ""
+
+    edit_shareholder_allotment_transfer_no: str = ""
+    edit_shareholder_date_of_allotment_transfer: str = ""
+    edit_shareholder_number_of_shares: str = ""
+    edit_shareholder_distinctive_numbers: str = ""
+    edit_shareholder_folio_of_transferor: str = ""
+    edit_shareholder_name_of_transferor: str = ""
+    edit_shareholder_date_of_issue_endorsement: str = ""
+    edit_shareholder_certificate_no: str = ""
+    
+
+    # ---------------------------------------------------------
+    # Shareholder Master
+    # ---------------------------------------------------------
+
+    show_add_shareholder: bool = False
+
+    shareholder_name_of_member: str = ""
+    shareholder_address: str = ""
+    shareholder_email: str = ""
+    shareholder_registration_number_cin: str = ""
+    shareholder_father_mother_spouse_name: str = ""
+    shareholder_status: str = ""
+    shareholder_occupation: str = ""
+    shareholder_pan: str = ""
+    shareholder_nationality: str = ""
+
+    shareholder_date_of_becoming_member: str = ""
+    shareholder_date_of_declaration_u_s_89: str = ""
+    shareholder_beneficial_owner_name_address: str = ""
+    shareholder_date_of_receipt_of_nomination: str = ""
+    shareholder_nominee_name_address: str = ""
+    shareholder_date_of_cessation_of_membership: str = ""
+
+    shareholder_allotment_transfer_no: str = ""
+    shareholder_date_of_allotment_transfer: str = ""
+    shareholder_number_of_shares: str = ""
+    shareholder_distinctive_numbers: str = ""
+    shareholder_folio_of_transferor: str = ""
+    shareholder_name_of_transferor: str = ""
+    shareholder_date_of_issue_endorsement: str = ""
+    shareholder_certificate_no: str = ""
+    shareholders: list[dict] = []
     # ── Internal helpers ──────────────────────────────────────────────────────
+    def toggle_company_sensitive_data(self, company_id: str):
+        if self.visible_company_id == company_id:
+            self.visible_company_id = ""
+        else:
+            self.visible_company_id = company_id
+
+    def open_edit_company_with_tabs(self, company_id: str):
+        self.open_edit_company_form(company_id)
+        self.edit_company_tab = "company"
+
+
+    def handle_edit_auditor_srn_change(self, value: str):
+        if self.show_edit_company_form:
+            self.edit_auditor_srn = value
+
+    def handle_edit_auditor_category_change(self, value: str):
+        if self.show_edit_company_form:
+            self.edit_auditor_category = value
+
+    def handle_edit_auditor_firm_name_change(self, value: str):
+        if self.show_edit_company_form:
+            self.edit_auditor_firm_name = value
+
+    def handle_edit_auditor_firm_membership_no_change(self, value: str):
+        if self.show_edit_company_form:
+            self.edit_auditor_firm_membership_no = value
+
+    def handle_edit_auditor_firm_pan_change(self, value: str):
+        if self.show_edit_company_form:
+            self.edit_auditor_firm_pan = value
+
+    def handle_edit_auditor_firm_email_change(self, value: str):
+        if self.show_edit_company_form:
+            self.edit_auditor_firm_email = value
+
+    def handle_edit_auditor_address_change(self, value: str):
+        if self.show_edit_company_form:
+                self.edit_auditor_address = value
+
+    def handle_edit_auditor_country(self, value: str):
+        if self.show_edit_company_form:
+            self.edit_auditor_country = value
+
+    def handle_edit_auditor_state(self, value: str):
+        if self.show_edit_company_form:
+            self.edit_auditor_state = value
+
+    def handle_edit_auditor_city(self, value: str):
+        if self.show_edit_company_form:
+            self.edit_auditor_city = value
+                
+
+    def handle_edit_auditor_pin_code(self, value: str):
+        if self.show_edit_company_form:
+            self.edit_auditor_pin_code = value
+
+    def handle_edit_auditor_designation(self, value: str):
+        if self.show_edit_company_form:
+            self.edit_auditor_designation = value
+
+    def handle_edit_auditor_email(self, value: str):
+        if self.show_edit_company_form:
+            self.edit_auditor_email = value
+
+    def handle_edit_auditor_mobile(self, value: str):
+        if self.show_edit_company_form:
+            self.edit_auditor_mobile = value
+
+    def handle_edit_auditor_pan(self, value: str):
+        if self.show_edit_company_form:
+            self.edit_auditor_pan = value
+
+    def handle_edit_auditor_name(self, value: str):
+        if self.show_edit_company_form:
+            self.edit_auditor_name = value
+
+    def handle_edit_auditor_partner_membership_no(self, value: str):
+        if self.show_edit_company_form:
+            self.edit_auditor_partner_membership_no = value
 
     def _clear_form(self) -> None:
         """Reset every company-form var to its default."""
@@ -261,6 +502,7 @@ class PortalState(rx.State):
         self.is_non_client = False
         self.form_cin = ""
         self.form_name = ""
+        self.form_pan = ""
         self.form_class = ""
         self.form_category = ""
         self.form_sub_category = ""
@@ -290,6 +532,7 @@ class PortalState(rx.State):
         self.edit_company_id = ""
         self.edit_form_cin = ""
         self.edit_form_name = ""
+        self.edit_form_pan = ""
         self.edit_form_class = ""
         self.edit_form_category = ""
         self.edit_form_sub_category = ""
@@ -302,6 +545,7 @@ class PortalState(rx.State):
         self.edit_form_rd_name = ""
         self.edit_form_rd_region = ""
         self.edit_form_registration_number = ""
+        self.edit_form_authorised_capital = ""
         self.edit_form_paid_up_capital = ""
         self.edit_form_number_of_members = ""
         self.edit_form_date_of_last_agm = ""
@@ -311,6 +555,33 @@ class PortalState(rx.State):
         self.edit_form_pin_code = ""
         self.edit_form_phone = ""
         self.edit_form_country = ""
+
+        # Auditor state must never leak from the previously opened company.
+        self.edit_auditor_srn = ""
+        self.edit_auditor_category = "Individual"
+        self.edit_auditor_firm_name = ""
+        self.edit_auditor_firm_membership_no = ""
+        self.edit_auditor_firm_pan = ""
+        self.edit_auditor_firm_email = ""
+        self.edit_auditor_address = ""
+        self.edit_auditor_country = ""
+        self.edit_auditor_state = ""
+        self.edit_auditor_city = ""
+        self.edit_auditor_pin_code = ""
+        self.edit_auditor_partner_membership_no = ""
+        self.edit_auditor_name = ""
+        self.edit_auditor_pan = ""
+        self.edit_auditor_mobile = ""
+        self.edit_auditor_email = ""
+        self.edit_auditor_designation = ""
+
+        self.edit_shareholder_id = ""
+        self.shareholders = []
+        self.share_capital_company_id = ""
+        self.show_share_capital = False
+        self.show_class_a = False
+        self.show_class_b = False
+        self.reset_share_capital_form()
 
     def _clear_user_form(self) -> None:
         """Reset every user-form var to its default."""
@@ -382,6 +653,7 @@ class PortalState(rx.State):
         self.form_llp_is_non_client = False
         self.form_llpin = ""
         self.form_llp_name = ""
+        self.form_llp_pan = ""
         self.form_llp_roc_name = ""
         self.form_llp_doi = ""
         self.form_llp_email = ""
@@ -401,6 +673,7 @@ class PortalState(rx.State):
         self.edit_llp_id = ""
         self.edit_form_llpin = ""
         self.edit_form_llp_name = ""
+        self.edit_form_llp_pan = ""
         self.edit_form_llp_roc_name = ""
         self.edit_form_llp_doi = ""
         self.edit_form_llp_email = ""
@@ -701,6 +974,7 @@ class PortalState(rx.State):
                     "id": str(r.id),
                     "cin": r.cin,
                     "name": r.name,
+                    "pan": r.pan or "",
                     "non_client": bool(r.non_client),
                     "class": r.company_class or "-",
                     "category": r.company_type or "-",
@@ -727,6 +1001,104 @@ class PortalState(rx.State):
                 for r in rows
             ]
 
+    def load_share_capital(self, company_id: str,capital_type: str):
+        with SessionLocal() as session:
+
+            rows = (
+                session.query(ShareCapital, ShareCapitalDetails)
+                .join(
+                Company,
+                Company.id == ShareCapital.company_id
+            )
+            .join(
+                ShareCapitalDetails,
+                ShareCapitalDetails.share_capital_id == ShareCapital.id
+            )
+            .filter(Company.id == company_id,
+                    ShareCapital.capital_type == capital_type)
+            .all()
+        )
+       
+        if not rows:
+            return
+
+        # All rows have the same ShareCapital
+        share_capital = rows[0][0]
+
+        self.share_capital_type = share_capital.capital_type or ""
+
+        for share_capital, detail in rows:
+
+            if detail.class_type == "OVERALL":
+
+                self.share_capital_authorized_shares = (
+                    str(detail.authorized_shares) if detail.authorized_shares is not None else ""
+                )
+
+                self.share_capital_paid_up_shares = (
+                    str(detail.paid_up_shares) if detail.paid_up_shares is not None else ""
+                )
+
+                self.share_capital_authorized_amount = (
+                    str(detail.authorized_total_amount) if detail.authorized_total_amount is not None else ""
+                )
+
+                self.share_capital_paid_up_amount = (
+                    str(detail.paid_up_total_amount) if detail.paid_up_total_amount is not None else ""
+                )
+
+            elif detail.class_type == "CLASS_A":
+
+                self.share_capital_a_authorized_shares = (
+                    str(detail.authorized_shares) if detail.authorized_shares is not None else ""
+                )
+
+                self.share_capital_a_paid_up_shares = (
+                    str(detail.paid_up_shares) if detail.paid_up_shares is not None else ""
+                )
+
+                self.share_capital_a_authorized_nominal = (
+                    str(detail.authorized_nominal_value) if detail.authorized_nominal_value is not None else ""
+                )
+
+                self.share_capital_a_paid_up_nominal = (
+                    str(detail.paid_up_nominal_value) if detail.paid_up_nominal_value is not None else ""
+                )
+
+                self.share_capital_a_authorized_amount = (
+                    str(detail.authorized_total_amount) if detail.authorized_total_amount is not None else ""
+                )
+
+                self.share_capital_a_paid_up_amount = (
+                    str(detail.paid_up_total_amount) if detail.paid_up_total_amount is not None else ""
+                )
+
+            elif detail.class_type == "CLASS_B":
+
+                self.share_capital_b_authorized_shares = (
+                    str(detail.authorized_shares) if detail.authorized_shares is not None else ""
+                )
+
+                self.share_capital_b_paid_up_shares = (
+                    str(detail.paid_up_shares) if detail.paid_up_shares is not None else ""
+                )
+
+                self.share_capital_b_authorized_nominal = (
+                    str(detail.authorized_nominal_value) if detail.authorized_nominal_value is not None else ""
+                )
+
+                self.share_capital_b_paid_up_nominal = (
+                    str(detail.paid_up_nominal_value) if detail.paid_up_nominal_value is not None else ""
+                )
+
+                self.share_capital_b_authorized_amount = (
+                    str(detail.authorized_total_amount) if detail.authorized_total_amount is not None else ""
+                )
+
+                self.share_capital_b_paid_up_amount = (
+                    str(detail.paid_up_total_amount) if detail.paid_up_total_amount is not None else ""
+                )
+
     def confirm_delete(self, company_id: str):
         if self.role != "ADMIN":
             self.error_message = "Only admins can delete companies."
@@ -739,6 +1111,15 @@ class PortalState(rx.State):
         with SessionLocal() as session:
             company = session.query(Company).filter(Company.id == cid).first()
             if company:
+                # Delete child records first because SQLite may not enforce FK cascades.
+                session.query(AuditorMaster).filter(AuditorMaster.company_id == cid).delete(synchronize_session=False)
+                shareholder_rows = session.query(ShareholderMaster).filter(ShareholderMaster.company_id == cid).all()
+                for row in shareholder_rows:
+                    session.delete(row)
+                share_capitals = session.query(ShareCapital).filter(ShareCapital.company_id == cid).all()
+                for sc in share_capitals:
+                    session.query(ShareCapitalDetails).filter(ShareCapitalDetails.share_capital_id == sc.id).delete(synchronize_session=False)
+                    session.delete(sc)
                 session.delete(company)
                 session.commit()
         self.load_companies()
@@ -764,6 +1145,10 @@ class PortalState(rx.State):
         if self.show_add_form:
             self.form_name = value
 
+    def handle_form_pan_change(self, value: str):
+        if self.show_add_form:
+            self.form_pan = value   
+
     def handle_form_class_change(self, value: str):
         if self.show_add_form:
             self.form_class = value
@@ -786,15 +1171,17 @@ class PortalState(rx.State):
     def open_edit_company_form(self, company_id: str):
         self._clear_edit_company_form()
         self.edit_company_id = company_id
+
         for c in self.companies:
             if c["id"] == company_id:
                 self.is_edit_form_non_client = bool(c.get("non_client", False))
                 self.edit_form_cin = c["cin"]
                 self.edit_form_name = c["name"]
+                self.edit_form_pan = c.get("pan", "")
                 self.edit_form_class = c["class"] if c["class"] != "-" else ""
                 self.edit_form_category = c["category"] if c["category"] != "-" else ""
                 self.edit_form_sub_category = c["sub_category"] if c["sub_category"] != "-" else ""
-                self.edit_form_doi = c["doi"]
+                self.edit_form_doi = _normalize_date(c.get("doi", ""))
                 self.edit_form_email = c["email"]
                 self.edit_form_address = c["address"]
                 self.edit_form_roc_code = c["roc_code"]
@@ -802,17 +1189,56 @@ class PortalState(rx.State):
                 self.edit_form_rd_name = c["rd_name"]
                 self.edit_form_rd_region = c["rd_region"]
                 self.edit_form_registration_number = c["registration_number"]
+                self.edit_form_authorised_capital = c.get("authorised_capital", "")
                 self.edit_form_paid_up_capital = c["paid_up_capital"]
                 self.edit_form_number_of_members = c["number_of_members"]
-                self.edit_form_date_of_last_agm = c["date_of_last_agm"]
-                self.edit_form_date_of_balance_sheet = c["date_of_balance_sheet"]
+                self.edit_form_date_of_last_agm = _normalize_date(c.get("date_of_last_agm", ""))
+                self.edit_form_date_of_balance_sheet = _normalize_date(c.get("date_of_balance_sheet", ""))
                 self.edit_form_listed_status = c["listed_status"]
                 self.edit_form_suspended_at_stock_exchange = c["suspended_at_stock_exchange"]
                 self.edit_form_pin_code = c["pin_code"]
                 self.edit_form_phone = c["phone"]
                 self.edit_form_country = c["country"]
                 break
+
+        # Load Auditor Details
+        with SessionLocal() as session:
+            auditor = (
+                session.query(AuditorMaster)
+                .filter(AuditorMaster.company_id == int(company_id))
+                .first()
+            )
+
+            if auditor:
+                self.edit_auditor_srn = auditor.srn or ""
+                self.edit_auditor_category = auditor.auditor_category or "Individual"
+                self.edit_auditor_firm_name = auditor.firm_name or ""
+                self.edit_auditor_firm_membership_no = auditor.firm_membership_no or ""
+                self.edit_auditor_firm_pan = auditor.firm_pan or ""
+                self.edit_auditor_firm_email = auditor.firm_email or ""
+                self.edit_auditor_address = auditor.address or ""
+                self.edit_auditor_country = auditor.country or ""
+                self.edit_auditor_state = auditor.state or ""
+                self.edit_auditor_city = auditor.city or ""
+                self.edit_auditor_pin_code = auditor.pin_code or ""
+                self.edit_auditor_partner_membership_no = auditor.partner_membership_no or ""
+                self.edit_auditor_name = auditor.auditor_name or ""
+                self.edit_auditor_pan = auditor.auditor_pan or ""
+                self.edit_auditor_mobile = auditor.mobile or ""
+                self.edit_auditor_email = auditor.email or ""
+                self.edit_auditor_designation = auditor.designation or ""
+
         self.show_edit_company_form = True
+        
+    def toggle_class_a(self):
+        self.show_class_a = not self.show_class_a
+
+    def toggle_class_b(self):
+        self.show_class_b = not self.show_class_b
+
+
+    def add_class_b(self):
+        self.show_class_b = True
 
     def close_edit_company_form(self):
         self._clear_edit_company_form()
@@ -824,6 +1250,10 @@ class PortalState(rx.State):
     def handle_edit_form_name_change(self, value: str):
         if self.show_edit_company_form:
             self.edit_form_name = value
+
+    def handle_edit_form_pan_change(self, value: str):
+        if self.show_edit_company_form:
+            self.edit_form_pan = value
 
     def handle_edit_form_class_change(self, value: str):
         if self.show_edit_company_form:
@@ -839,8 +1269,7 @@ class PortalState(rx.State):
 
     def handle_form_doi_change(self, value: str):
         if self.show_add_form:
-            m = _ISO_DATE_RE.match(value)
-            self.form_doi = f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m else value
+            self.form_doi = value
 
     def handle_form_email_change(self, value: str):
         if self.show_add_form:
@@ -884,13 +1313,11 @@ class PortalState(rx.State):
 
     def handle_form_date_of_last_agm_change(self, value: str):
         if self.show_add_form:
-            m = _ISO_DATE_RE.match(value)
-            self.form_date_of_last_agm = f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m else value
+            self.form_date_of_last_agm = value
 
     def handle_form_date_of_balance_sheet_change(self, value: str):
         if self.show_add_form:
-            m = _ISO_DATE_RE.match(value)
-            self.form_date_of_balance_sheet = f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m else value
+            self.form_date_of_balance_sheet = value
 
     def handle_form_listed_status_change(self, value: str):
         if self.show_add_form:
@@ -914,8 +1341,7 @@ class PortalState(rx.State):
 
     def handle_edit_form_doi_change(self, value: str):
         if self.show_edit_company_form:
-            m = _ISO_DATE_RE.match(value)
-            self.edit_form_doi = f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m else value
+            self.edit_form_doi = value
 
     def handle_edit_form_email_change(self, value: str):
         if self.show_edit_company_form:
@@ -959,13 +1385,11 @@ class PortalState(rx.State):
 
     def handle_edit_form_date_of_last_agm_change(self, value: str):
         if self.show_edit_company_form:
-            m = _ISO_DATE_RE.match(value)
-            self.edit_form_date_of_last_agm = f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m else value
+            self.edit_form_date_of_last_agm = value
 
     def handle_edit_form_date_of_balance_sheet_change(self, value: str):
         if self.show_edit_company_form:
-            m = _ISO_DATE_RE.match(value)
-            self.edit_form_date_of_balance_sheet = f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m else value
+            self.edit_form_date_of_balance_sheet = value
 
     def handle_edit_form_listed_status_change(self, value: str):
         if self.show_edit_company_form:
@@ -987,33 +1411,151 @@ class PortalState(rx.State):
         if self.show_edit_company_form:
             self.edit_form_country = value
 
+    def handle_shareholder_name_of_member_change(self, value: str):
+        self.shareholder_name_of_member = value
+
+
+    def handle_shareholder_address_change(self, value: str):
+        self.shareholder_address = value
+
+
+    def handle_shareholder_email_change(self, value: str):
+        self.shareholder_email = value
+
+
+    def handle_shareholder_registration_number_cin_change(self, value: str):
+        self.shareholder_registration_number_cin = value
+
+
+    def handle_shareholder_father_mother_spouse_name_change(self, value: str):
+        self.shareholder_father_mother_spouse_name = value
+
+
+    def handle_shareholder_status_change(self, value: str):
+        self.shareholder_status = value
+
+
+    def handle_shareholder_occupation_change(self, value: str):
+        self.shareholder_occupation = value
+
+
+    def handle_shareholder_pan_change(self, value: str):
+        self.shareholder_pan = value
+
+
+    def handle_shareholder_nationality_change(self, value: str):
+        self.shareholder_nationality = value
+
+
+    def handle_shareholder_date_of_becoming_member_change(self, value: str):
+        self.shareholder_date_of_becoming_member = value
+
+
+    def handle_shareholder_date_of_declaration_u_s_89_change(self, value: str):
+        self.shareholder_date_of_declaration_u_s_89 = value
+
+
+    def handle_shareholder_beneficial_owner_name_address_change(self, value: str):
+        self.shareholder_beneficial_owner_name_address = value
+
+
+    def handle_shareholder_date_of_receipt_of_nomination_change(self, value: str):
+        self.shareholder_date_of_receipt_of_nomination = value
+
+
+    def handle_shareholder_nominee_name_address_change(self, value: str):
+        self.shareholder_nominee_name_address = value
+
+
+    def handle_shareholder_date_of_cessation_of_membership_change(self, value: str):
+        self.shareholder_date_of_cessation_of_membership = value
+
+
+    def handle_shareholder_allotment_transfer_no_change(self, value: str):
+        self.shareholder_allotment_transfer_no = value
+
+
+    def handle_shareholder_date_of_allotment_transfer_change(self, value: str):
+        self.shareholder_date_of_allotment_transfer = value
+
+
+    def handle_shareholder_number_of_shares_change(self, value: str):
+        self.shareholder_number_of_shares = value
+
+
+    def handle_shareholder_distinctive_numbers_change(self, value: str):
+        self.shareholder_distinctive_numbers = value
+
+
+    def handle_shareholder_folio_of_transferor_change(self, value: str):
+        self.shareholder_folio_of_transferor = value
+
+
+    def handle_shareholder_name_of_transferor_change(self, value: str):
+        self.shareholder_name_of_transferor = value
+
+
+    def handle_shareholder_date_of_issue_endorsement_change(self, value: str):
+        self.shareholder_date_of_issue_endorsement = value
+
+
+    def handle_shareholder_certificate_no_change(self, value: str):
+        self.shareholder_certificate_no = value
     def save_edit_company(self):
         if self.role not in ("ADMIN", "EDITOR"):
             self.edit_form_error = "You do not have permission to edit companies."
             return
-        cin = self.edit_form_cin.strip()
+
+        cin = self.edit_form_cin.strip().upper()
         name = self.edit_form_name.strip()
+        pan = self.edit_form_pan.strip()
         company_class = self.edit_form_class.strip()
         company_category = self.edit_form_category.strip()
         company_sub_category = self.edit_form_sub_category.strip()
-        doi = self.edit_form_doi.strip()
+        doi = _normalize_date(self.edit_form_doi.strip())
         email = self.edit_form_email.strip()
         address = self.edit_form_address.strip()
+
+        self.edit_form_error = ""
+        if not cin:
+            self.edit_form_error = "CIN is required."
+            return
+        if not is_valid_cin(cin):
+            self.edit_form_error = "Not a valid CIN."
+            return
+        if not name:
+            self.edit_form_error = "Name is required."
+            return
+
+        # Non-client companies do not require client classification fields.
         if self.is_edit_form_non_client:
-            if not cin or not name or not self.edit_form_registration_number.strip():
-                self.edit_form_error = "CIN and Name are required for non-client companies."
+            registration_number = self.edit_form_registration_number.strip()
+            if not registration_number:
+                self.edit_form_error = "Registration Number is required."
+                return
+            if not registration_number.isnumeric():
+                self.edit_form_error = "Registration Number must contain only digits."
                 return
         else:
-            if not cin or not name or not company_class or not company_category or not company_sub_category:
-                self.edit_form_error = "All fields are required."
+            if not company_class:
+                self.edit_form_error = "Company Class is required."
                 return
+            if not company_category:
+                self.edit_form_error = "Company Category is required."
+                return
+            if not company_sub_category:
+                self.edit_form_error = "Company Sub Category is required."
+                return
+
         if email and not _EMAIL_RE.match(email):
             self.edit_form_error = "Enter a valid email address."
             return
         if doi and not _parse_doi(doi):
-            self.edit_form_error = "Invalid date. Use DD/MM/YYYY (e.g. 15/08/2024)."
+            self.edit_form_error = "Date cannot be in the future and must be in YYYY-MM-DD format."
             return
+
         extra = {
+            "pan": pan,
             "roc_code": self.edit_form_roc_code.strip(),
             "roc_office": self.edit_form_roc_office.strip(),
             "rd_name": self.edit_form_rd_name.strip(),
@@ -1022,57 +1564,64 @@ class PortalState(rx.State):
             "authorised_capital": str(self.edit_form_authorised_capital).strip(),
             "paid_up_capital": str(self.edit_form_paid_up_capital).strip(),
             "number_of_members": self.edit_form_number_of_members.strip(),
-            "date_of_last_agm": self.edit_form_date_of_last_agm.strip(),
-            "date_of_balance_sheet": self.edit_form_date_of_balance_sheet.strip(),
+            "date_of_last_agm": _normalize_date(self.edit_form_date_of_last_agm.strip()),
+            "date_of_balance_sheet": _normalize_date(self.edit_form_date_of_balance_sheet.strip()),
             "listed_status": self.edit_form_listed_status.strip(),
             "suspended": self.edit_form_suspended_at_stock_exchange.strip(),
             "pin_code": self.edit_form_pin_code.strip(),
             "phone": self.edit_form_phone.strip(),
             "country": self.edit_form_country.strip(),
             "non_client": self.is_edit_form_non_client,
+            "auditor_srn": self.edit_auditor_srn.strip(),
+            "auditor_category": self.edit_auditor_category.strip(),
+            "auditor_firm_name": self.edit_auditor_firm_name.strip(),
+            "auditor_firm_membership_no": self.edit_auditor_firm_membership_no.strip(),
+            "auditor_firm_pan": self.edit_auditor_firm_pan.strip(),
+            "auditor_firm_email": self.edit_auditor_firm_email.strip(),
+            "auditor_address": self.edit_auditor_address.strip(),
+            "auditor_country": self.edit_auditor_country.strip(),
+            "auditor_state": self.edit_auditor_state.strip(),
+            "auditor_city": self.edit_auditor_city.strip(),
+            "auditor_pin_code": self.edit_auditor_pin_code.strip(),
+            "auditor_partner_membership_no": self.edit_auditor_partner_membership_no.strip(),
+            "auditor_name": self.edit_auditor_name.strip(),
+            "auditor_pan": self.edit_auditor_pan.strip(),
+            "auditor_mobile": self.edit_auditor_mobile.strip(),
+            "auditor_email": self.edit_auditor_email.strip(),
+            "auditor_designation": self.edit_auditor_designation.strip(),
         }
+
         cid = self.edit_company_id
         self._clear_edit_company_form()
         self.is_saving = True
         return PortalState.commit_edit_company(
-            cid, cin, name, company_class, company_category, company_sub_category,
+            cid, cin, name, pan, company_class, company_category, company_sub_category,
             doi, email, address,
             extra["roc_code"], extra["roc_office"], extra["rd_name"], extra["rd_region"],
-            extra["registration_number"],
-            extra["authorised_capital"], extra["paid_up_capital"],
-            extra["number_of_members"], extra["date_of_last_agm"],
-            extra["date_of_balance_sheet"], extra["listed_status"],
-            extra["suspended"], extra["pin_code"], extra["phone"], extra["country"],
-            extra["non_client"],
+            extra["registration_number"], extra["authorised_capital"], extra["paid_up_capital"],
+            extra["number_of_members"], extra["date_of_last_agm"], extra["date_of_balance_sheet"],
+            extra["listed_status"], extra["suspended"], extra["pin_code"], extra["phone"], extra["country"],
+            extra["non_client"], extra["auditor_srn"], extra["auditor_category"], extra["auditor_firm_name"],
+            extra["auditor_firm_membership_no"], extra["auditor_firm_pan"], extra["auditor_firm_email"],
+            extra["auditor_address"], extra["auditor_country"], extra["auditor_state"], extra["auditor_city"],
+            extra["auditor_pin_code"], extra["auditor_partner_membership_no"], extra["auditor_name"],
+            extra["auditor_pan"], extra["auditor_mobile"], extra["auditor_email"], extra["auditor_designation"],
         )
 
     def commit_edit_company(
-        self,
-        company_id: str,
-        cin: str,
-        name: str,
-        company_class: str,
-        company_category: str,
-        company_sub_category: str,
-        doi: str = "",
-        email: str = "",
-        address: str = "",
-        roc_code: str = "",
-        roc_office: str = "",
-        rd_name: str = "",
-        rd_region: str = "",
-        registration_number: str = "",
-        authorised_capital: str = "",
-        paid_up_capital: str = "",
-        number_of_members: str = "",
-        date_of_last_agm: str = "",
-        date_of_balance_sheet: str = "",
-        listed_status: str = "",
-        suspended: str = "",
-        pin_code: str = "",
-        phone: str = "",
-        country: str = "",
-        non_client: bool = False,
+        self, company_id: str, cin: str, name: str, pan: str = "",
+        company_class: str = "", company_category: str = "", company_sub_category: str = "",
+        doi: str = "", email: str = "", address: str = "", roc_code: str = "",
+        roc_office: str = "", rd_name: str = "", rd_region: str = "", registration_number: str = "",
+        authorised_capital: str = "", paid_up_capital: str = "", number_of_members: str = "",
+        date_of_last_agm: str = "", date_of_balance_sheet: str = "", listed_status: str = "",
+        suspended: str = "", pin_code: str = "", phone: str = "", country: str = "",
+        non_client: bool = False, auditor_srn: str = "", auditor_category: str = "Individual",
+        auditor_firm_name: str = "", auditor_firm_membership_no: str = "", auditor_firm_pan: str = "",
+        auditor_firm_email: str = "", auditor_address: str = "", auditor_country: str = "",
+        auditor_state: str = "", auditor_city: str = "", auditor_pin_code: str = "",
+        auditor_partner_membership_no: str = "", auditor_name: str = "", auditor_pan: str = "",
+        auditor_mobile: str = "", auditor_email: str = "", auditor_designation: str = "",
     ):
         try:
             cid = int(company_id)
@@ -1080,23 +1629,32 @@ class PortalState(rx.State):
             self.error_message = f"Invalid company ID '{company_id}'."
             self.is_saving = False
             return
-        def _cap(v): return float(v) if v else None
-        non_client_value = int(bool(non_client))
-        with SessionLocal() as session:
-            existing = session.query(Company).filter(Company.cin == cin, Company.id != cid).first()
-            if existing:
-                self.error_message = f"Another company with CIN '{cin}' already exists."
-                self.is_saving = False
-                return
-            company = session.query(Company).filter(Company.id == cid).first()
-            if company:
+
+        def _cap(v):
+            return float(v) if str(v).strip() else None
+
+        try:
+            with SessionLocal() as session:
+                existing = session.query(Company).filter(Company.cin == cin, Company.id != cid).first()
+                if existing:
+                    self.error_message = f"Another company with CIN '{cin}' already exists."
+                    self.is_saving = False
+                    return
+
+                company = session.query(Company).filter(Company.id == cid).first()
+                if not company:
+                    self.error_message = f"Company with ID '{company_id}' was not found."
+                    self.is_saving = False
+                    return
+
                 company.cin = cin
                 company.name = name
+                company.pan = pan or None
                 company.company_class = company_class
                 company.company_type = company_category
-                company.non_client = bool(non_client_value)
+                company.non_client = bool(non_client)
                 company.sub_category = company_sub_category
-                company.date_of_incorporation = doi or None
+                company.date_of_incorporation = _normalize_date(doi) or None
                 company.email = email or None
                 company.address = address or None
                 company.roc_code = roc_code or None
@@ -1107,14 +1665,61 @@ class PortalState(rx.State):
                 company.authorised_capital = _cap(authorised_capital)
                 company.paid_up_capital = _cap(paid_up_capital)
                 company.number_of_members = number_of_members or None
-                company.date_of_last_agm = date_of_last_agm or None
-                company.date_of_balance_sheet = date_of_balance_sheet or None
+                company.date_of_last_agm = _normalize_date(date_of_last_agm) or None
+                company.date_of_balance_sheet = _normalize_date(date_of_balance_sheet) or None
                 company.listed_status = listed_status or None
                 company.suspended_at_stock_exchange = suspended or None
                 company.pin_code = pin_code or None
                 company.phone = phone or None
                 company.country = country or None
+
+                auditor_fields = [
+                    auditor_srn, auditor_firm_name, auditor_firm_membership_no, auditor_firm_pan,
+                    auditor_firm_email, auditor_address, auditor_country, auditor_state, auditor_city,
+                    auditor_pin_code, auditor_partner_membership_no, auditor_name, auditor_pan,
+                    auditor_mobile, auditor_email, auditor_designation,
+                ]
+                auditor_entered = any(str(v).strip() for v in auditor_fields)
+                auditor = session.query(AuditorMaster).filter(AuditorMaster.company_id == cid).first()
+
+                if auditor_entered:
+                    if not auditor_srn.strip():
+                        session.rollback()
+                        self.error_message = "Auditor SRN is required when auditor details are entered."
+                        self.is_saving = False
+                        return
+                    if auditor is None:
+                        auditor = AuditorMaster(company_id=cid)
+                    auditor.srn = auditor_srn.strip()
+                    auditor.auditor_category = auditor_category or "Individual"
+                    auditor.firm_name = auditor_firm_name or None
+                    auditor.firm_membership_no = auditor_firm_membership_no or None
+                    auditor.firm_pan = auditor_firm_pan or None
+                    auditor.firm_email = auditor_firm_email or None
+                    auditor.address = auditor_address or None
+                    auditor.country = auditor_country or None
+                    auditor.state = auditor_state or None
+                    auditor.city = auditor_city or None
+                    auditor.pin_code = auditor_pin_code or None
+                    auditor.partner_membership_no = auditor_partner_membership_no or None
+                    auditor.auditor_name = auditor_name or ""
+                    auditor.auditor_pan = auditor_pan or None
+                    auditor.mobile = auditor_mobile or None
+                    auditor.email = auditor_email or None
+                    auditor.designation = auditor_designation or None
+                    session.add(auditor)
+                elif auditor is not None:
+                    # Existing auditor may intentionally be cleared. Since SRN is
+                    # non-nullable, remove the row rather than setting SRN to NULL.
+                    session.delete(auditor)
+
                 session.commit()
+
+        except Exception as e:
+            self.is_saving = False
+            self.error_message = f"Unable to save company: {e}"
+            return
+
         self.is_saving = False
         self.load_companies()
 
@@ -1134,28 +1739,48 @@ class PortalState(rx.State):
 
         cin = self.form_cin.strip()
         name = self.form_name.strip()
+        pan = self.form_pan.strip()
         company_class = self.form_class.strip()
         company_category = self.form_category.strip()
         company_sub_category = self.form_sub_category.strip()
         doi = self.form_doi.strip()
         email = self.form_email.strip()
         address = self.form_address.strip()
+        if not cin:
+            self.form_error = "CIN is required."
+            return
+        if not is_valid_cin(cin):
+            self.form_error = "Not a valid CIN."
+            return
+        if not name:
+            self.form_error = "Name is required."
+            return
         if self.is_non_client:
-            if not cin or not name or not self.form_registration_number:
-                self.form_error = "All fields are required."
+            if not self.form_registration_number:
+                self.form_error = "Registration Number is required."
                 return
-        else:
-            if not cin or not name or not company_class or not company_category or not company_sub_category:
-                self.form_error = "All fields are required."
+            if not self.form_registration_number.isnumeric():
+                self.form_error = "Registration Number must contain only digits."
+                return
+        if not self.is_non_client:
+            if not company_class:
+                self.form_error = "Company Class is required."
+                return
+            if not company_category:
+                self.form_error = "Company Category is required."
+                return
+            if not company_sub_category:
+                self.form_error = "Company Sub Category is required."
                 return
             if email and not _EMAIL_RE.match(email):
                 self.form_error = "Enter a valid email address."
                 return
             if doi and not _parse_doi(doi):
-                self.form_error = "Invalid date. Use DD/MM/YYYY (e.g. 15/08/2024)."
+                self.form_error = "Date cannot be in the future and must be in YYYY-MM-DD format."
                 return
 
         extra = {
+            "pan": pan,
             "roc_code": self.form_roc_code.strip(),
             "roc_office": self.form_roc_office.strip(),
             "rd_name": self.form_rd_name.strip(),
@@ -1176,7 +1801,7 @@ class PortalState(rx.State):
         self._clear_form()
         self.is_saving = True
         return PortalState.commit_save(
-            cin, name, company_class, company_category, company_sub_category,
+            cin, name, pan, company_class, company_category, company_sub_category,
             doi, email, address,
             extra["roc_code"], extra["roc_office"], extra["rd_name"], extra["rd_region"],
             extra["registration_number"],
@@ -1186,14 +1811,272 @@ class PortalState(rx.State):
             extra["suspended"], extra["pin_code"], extra["phone"], extra["country"],
             extra["non_client"],
         )
+    def save_share_capital(self):
+        if self.role not in ("ADMIN", "EDITOR"):
+            self.form_error = "You do not have permission to add share capital details."
+            return
 
+        company_id = self.share_capital_company_id.strip()
+        capital_type = self.share_capital_type.strip()
+
+        if not company_id:
+            self.form_error = "Company ID is required."
+            return
+
+        if not capital_type:
+            self.form_error = "Capital Type is required."
+            return
+
+        whole_number_fields = [
+            self.share_capital_authorized_shares,
+            self.share_capital_paid_up_shares,
+            self.share_capital_a_authorized_shares,
+            self.share_capital_a_paid_up_shares,
+            self.share_capital_b_authorized_shares,
+            self.share_capital_b_paid_up_shares,
+        ]
+        for value in whole_number_fields:
+            if value not in (None, ""):
+                try:
+                    number = float(value)
+                    if number < 0 or not number.is_integer():
+                        self.form_error = "Share counts must be non-negative whole numbers."
+                        return
+                except (TypeError, ValueError):
+                    self.form_error = "Share counts must be valid numbers."
+                    return
+
+        decimal_fields = [
+            self.share_capital_authorized_amount, self.share_capital_paid_up_amount,
+            self.share_capital_a_authorized_nominal, self.share_capital_a_paid_up_nominal,
+            self.share_capital_a_authorized_amount, self.share_capital_a_paid_up_amount,
+            self.share_capital_b_authorized_nominal, self.share_capital_b_paid_up_nominal,
+            self.share_capital_b_authorized_amount, self.share_capital_b_paid_up_amount,
+        ]
+        for value in decimal_fields:
+            if value not in (None, ""):
+                try:
+                    if float(value) < 0:
+                        self.form_error = "Share capital values cannot be negative."
+                        return
+                except (TypeError, ValueError):
+                    self.form_error = "Share capital values must be valid numbers."
+                    return
+
+        details = [
+            {
+                "class_type": "OVERALL",
+                "authorized_shares": self.share_capital_authorized_shares,
+                "paid_up_shares": self.share_capital_paid_up_shares,
+                "authorized_total_amount": self.share_capital_authorized_amount,
+                "paid_up_total_amount": self.share_capital_paid_up_amount,
+            },
+            {
+                "class_type": "CLASS_A",
+                "authorized_shares": self.share_capital_a_authorized_shares,
+                "paid_up_shares": self.share_capital_a_paid_up_shares,
+                "authorized_nominal_value": self.share_capital_a_authorized_nominal,
+                "paid_up_nominal_value": self.share_capital_a_paid_up_nominal,
+                "authorized_total_amount": self.share_capital_a_authorized_amount,
+                "paid_up_total_amount": self.share_capital_a_paid_up_amount,
+            },
+            {
+                "class_type": "CLASS_B",
+                "authorized_shares": self.share_capital_b_authorized_shares,
+                "paid_up_shares": self.share_capital_b_paid_up_shares,
+                "authorized_nominal_value": self.share_capital_b_authorized_nominal,
+                "paid_up_nominal_value": self.share_capital_b_paid_up_nominal,
+                "authorized_total_amount": self.share_capital_b_authorized_amount,
+                "paid_up_total_amount": self.share_capital_b_paid_up_amount,
+            },
+        ]
+
+        self.is_saving = True
+
+        return PortalState.commit_save_share_capital(
+            company_id,
+            capital_type,
+            details,
+        )
+    
+    
+    def commit_save_share_capital(
+        self,
+        id: str,
+        capital_type: str,
+        details: list[dict],
+    ):
+        try:
+            cid = int(id)
+        except (ValueError, TypeError):
+            self.error_message = f"Invalid company ID '{id}'."
+            self.is_saving = False
+            return
+
+        def _int(v):
+            if v in (None, ""):
+                return None
+            value = float(v)
+            if not value.is_integer() or value < 0:
+                raise ValueError("Share counts must be non-negative whole numbers.")
+            return int(value)
+
+        def _decimal(v):
+            if v in (None, ""):
+                return None
+            value = float(v)
+            if value < 0:
+                raise ValueError("Amounts must be non-negative.")
+            return value
+
+        with SessionLocal() as session:
+
+            # ---------------------------------------------------------
+            # Check if company exists
+            # ---------------------------------------------------------
+            company = session.query(Company).filter(
+                Company.id == cid
+            ).first()
+
+            if not company:
+                self.error_message = f"No company found '{id}'."
+                self.is_saving = False
+                return
+
+            # ---------------------------------------------------------
+            # Get existing ShareCapital
+            # based on company_id + capital_type
+            # ---------------------------------------------------------
+            share_capital = session.query(ShareCapital).filter(
+                ShareCapital.company_id == cid,
+                ShareCapital.capital_type == capital_type,
+            ).first()
+            
+            
+            if share_capital:
+                # Existing record
+                share_capital.update_dt = func.current_timestamp()
+
+
+            else:
+                # New record
+                share_capital = ShareCapital(
+                    company_id=cid,
+                    capital_type=capital_type,
+                )
+
+                session.add(share_capital)
+                session.flush()
+
+
+
+            # ---------------------------------------------------------
+            # Make sure ID is available
+            # ---------------------------------------------------------
+            session.flush()
+
+            # ---------------------------------------------------------
+            # Add / update ShareCapitalDetails
+            # ---------------------------------------------------------
+            for detail in details:
+
+                class_type = detail.get("class_type")
+
+                existing_detail = session.query(
+                    ShareCapitalDetails
+                ).filter(
+                    ShareCapitalDetails.share_capital_id == share_capital.id,
+                    ShareCapitalDetails.class_type == class_type,
+                ).first()
+
+                if existing_detail:
+
+                    # ---------------------------------------------
+                    # Update existing detail
+                    # ---------------------------------------------
+                    existing_detail.authorized_shares = _int(
+                        detail.get("authorized_shares")
+                    )
+
+                    existing_detail.paid_up_shares = _int(
+                        detail.get("paid_up_shares")
+                    )
+
+                    existing_detail.authorized_nominal_value = _decimal(
+                        detail.get("authorized_nominal_value")
+                    )
+
+                    existing_detail.paid_up_nominal_value = _decimal(
+                        detail.get("paid_up_nominal_value")
+                    )
+
+                    existing_detail.authorized_total_amount = _decimal(
+                        detail.get("authorized_total_amount")
+                    )
+
+                    existing_detail.paid_up_total_amount = _decimal(
+                        detail.get("paid_up_total_amount")
+                    )
+
+
+                else:
+
+                    # ---------------------------------------------
+                    # Create new detail
+                    # ---------------------------------------------
+                    session.add(
+                        ShareCapitalDetails(
+                            share_capital_id=share_capital.id,
+                            class_type=class_type,
+
+                            authorized_shares=_int(
+                                detail.get("authorized_shares")
+                            ),
+
+                            paid_up_shares=_int(
+                                detail.get("paid_up_shares")
+                            ),
+
+                            authorized_nominal_value=_decimal(
+                                detail.get("authorized_nominal_value")
+                            ),
+
+                            paid_up_nominal_value=_decimal(
+                                detail.get("paid_up_nominal_value")
+                            ),
+
+                            authorized_total_amount=_decimal(
+                                detail.get("authorized_total_amount")
+                            ),
+
+                            paid_up_total_amount=_decimal(
+                                detail.get("paid_up_total_amount")
+                            ),
+                        )
+                    )
+
+                    
+
+            # ---------------------------------------------------------
+            # Commit
+            # ---------------------------------------------------------
+            session.commit()
+
+        self.is_saving = False
+        self.reset_share_capital_form()
+        self.share_capital_type = capital_type
+        self.load_share_capital(str(cid), capital_type)
+        self.close_share_capital()
+
+    
     def commit_save(
         self,
         cin: str,
         name: str,
-        company_class: str,
-        company_category: str,
-        company_sub_category: str,
+        pan: str = "",
+        company_class: str = "",
+        company_category: str = "",
+        company_sub_category: str = "",
         doi: str = "",
         email: str = "",
         address: str = "",
@@ -1226,6 +2109,7 @@ class PortalState(rx.State):
                 Company(
                     cin=cin,
                     name=name,
+                    pan=pan or None,
                     company_class=company_class,
                     company_type=company_category,
                     non_client=bool(non_client_value),
@@ -1254,6 +2138,332 @@ class PortalState(rx.State):
         self.is_saving = False
         self.load_companies()
 
+    def set_edit_company_tab(self, tab: str):
+        self.edit_company_tab = tab
+
+    def show_share_capital_tab(self):
+        self.edit_company_tab = "share_capital"
+        return PortalState.open_share_capital(self.edit_company_id)
+    
+    def edit_shareholder(self, shareholder_id: str):
+        if self.role not in ("ADMIN", "EDITOR"):
+            self.error_message = "You do not have permission to edit shareholder details."
+            return
+
+        try:
+            sid = int(shareholder_id)
+        except (ValueError, TypeError):
+            self.error_message = f"Invalid shareholder ID '{shareholder_id}'."
+            return
+
+        with SessionLocal() as session:
+            shareholder = (
+                session.query(ShareholderMaster)
+                .filter(ShareholderMaster.id == sid)
+                .first()
+            )
+
+            if not shareholder:
+                self.error_message = f"Shareholder with ID '{shareholder_id}' was not found."
+                return
+
+            # Remember which record we are editing
+            self.edit_shareholder_id = shareholder_id
+
+            # Load existing values into the form
+            self.shareholder_name_of_member = shareholder.name_of_member or ""
+            self.shareholder_address = shareholder.address or ""
+            self.shareholder_email = shareholder.email or ""
+            self.shareholder_registration_number_cin = shareholder.registration_number_cin or ""
+            self.shareholder_father_mother_spouse_name = shareholder.father_mother_spouse_name or ""
+            self.shareholder_status = shareholder.status or ""
+            self.shareholder_occupation = shareholder.occupation or ""
+            self.shareholder_pan = shareholder.pan or ""
+            self.shareholder_nationality = shareholder.nationality or ""
+
+            self.shareholder_date_of_becoming_member = shareholder.date_of_becoming_member or ""
+            self.shareholder_date_of_declaration_u_s_89 = shareholder.date_of_declaration_u_s_89 or ""
+            self.shareholder_beneficial_owner_name_address = (
+                shareholder.beneficial_owner_name_address or ""
+            )
+            self.shareholder_date_of_receipt_of_nomination = (
+                shareholder.date_of_receipt_of_nomination or ""
+            )
+            self.shareholder_nominee_name_address = shareholder.nominee_name_address or ""
+            self.shareholder_date_of_cessation_of_membership = (
+                shareholder.date_of_cessation_of_membership or ""
+            )
+
+            self.shareholder_allotment_transfer_no = shareholder.allotment_transfer_no or ""
+            self.shareholder_date_of_allotment_transfer = (
+                shareholder.date_of_allotment_transfer or ""
+            )
+            self.shareholder_number_of_shares = shareholder.number_of_shares or ""
+            self.shareholder_distinctive_numbers = shareholder.distinctive_numbers or ""
+            self.shareholder_folio_of_transferor = shareholder.folio_of_transferor or ""
+            self.shareholder_name_of_transferor = shareholder.name_of_transferor or ""
+            self.shareholder_date_of_issue_endorsement = (
+                shareholder.date_of_issue_endorsement or ""
+            )
+            self.shareholder_certificate_no = shareholder.certificate_no or ""
+
+        # Open the same form used for Add Shareholder
+        self.show_add_shareholder = True
+    def save_shareholder(self):
+
+        if self.role not in ("ADMIN", "EDITOR"):
+            self.error_message = (
+                "You do not have permission to add shareholder details."
+            )
+            return
+
+        company_id = self.edit_company_id.strip()
+
+        if not company_id:
+            self.error_message = "Company ID is required."
+            return
+
+        name_of_member = self.shareholder_name_of_member.strip()
+
+        if not name_of_member:
+            self.error_message = "Name of the Member is required."
+            return
+
+        email = self.shareholder_email.strip()
+
+        if email and not _EMAIL_RE.match(email):
+            self.error_message = "Enter a valid email address."
+            return
+
+        self.is_saving = True
+
+        return PortalState.commit_save_shareholder(
+            company_id,
+
+            self.shareholder_name_of_member.strip(),
+            self.shareholder_address.strip(),
+            self.shareholder_email.strip(),
+            self.shareholder_registration_number_cin.strip(),
+            self.shareholder_father_mother_spouse_name.strip(),
+            self.shareholder_status.strip(),
+            self.shareholder_occupation.strip(),
+            self.shareholder_pan.strip(),
+            self.shareholder_nationality.strip(),
+
+            self.shareholder_date_of_becoming_member,
+            self.shareholder_date_of_declaration_u_s_89,
+            self.shareholder_beneficial_owner_name_address.strip(),
+            self.shareholder_date_of_receipt_of_nomination,
+            self.shareholder_nominee_name_address.strip(),
+            self.shareholder_date_of_cessation_of_membership,
+
+            self.shareholder_allotment_transfer_no.strip(),
+            self.shareholder_date_of_allotment_transfer,
+            self.shareholder_number_of_shares.strip(),
+            self.shareholder_distinctive_numbers.strip(),
+            self.shareholder_folio_of_transferor.strip(),
+            self.shareholder_name_of_transferor.strip(),
+            self.shareholder_date_of_issue_endorsement,
+            self.shareholder_certificate_no.strip(),
+            self.edit_shareholder_id,
+        )
+
+    def commit_save_shareholder(
+        self, company_id: str, name_of_member: str, address: str, email: str,
+        registration_number_cin: str, father_mother_spouse_name: str, status: str,
+        occupation: str, pan: str, nationality: str, date_of_becoming_member: str,
+        date_of_declaration_u_s_89: str, beneficial_owner_name_address: str,
+        date_of_receipt_of_nomination: str, nominee_name_address: str,
+        date_of_cessation_of_membership: str, allotment_transfer_no: str,
+        date_of_allotment_transfer: str, number_of_shares: str, distinctive_numbers: str,
+        folio_of_transferor: str, name_of_transferor: str, date_of_issue_endorsement: str,
+        certificate_no: str, edit_shareholder_id: str = "",
+    ):
+        try:    
+            cid = int(company_id)
+        except (ValueError, TypeError):
+            self.error_message = f"Invalid company ID '{company_id}'."
+            self.is_saving = False
+            return
+
+        try:
+            with SessionLocal() as session:
+                company = session.query(Company).filter(Company.id == cid).first()
+                if not company:
+                    self.error_message = f"No company found with ID '{company_id}'."
+                    self.is_saving = False
+                    return
+
+                shareholder = None
+                if edit_shareholder_id:
+                    try:
+                        sid = int(edit_shareholder_id)
+                    except (ValueError, TypeError):
+                        self.error_message = f"Invalid shareholder ID '{edit_shareholder_id}'."
+                        self.is_saving = False
+                        return
+                    shareholder = (session.query(ShareholderMaster)
+                                   .filter(ShareholderMaster.id == sid, ShareholderMaster.company_id == cid)
+                                   .first())
+                    if not shareholder:
+                        self.error_message = f"Shareholder with ID '{edit_shareholder_id}' was not found."
+                        self.is_saving = False
+                        return
+                else:
+                    shareholder = ShareholderMaster(company_id=cid, is_active=True)
+                    session.add(shareholder)
+
+                shareholder.name_of_member = name_of_member
+                shareholder.address = address or None
+                shareholder.email = email or None
+                shareholder.registration_number_cin = registration_number_cin or None
+                shareholder.father_mother_spouse_name = father_mother_spouse_name or None
+                shareholder.status = status or None
+                shareholder.occupation = occupation or None
+                shareholder.pan = pan or None
+                shareholder.nationality = nationality or None
+                shareholder.date_of_becoming_member = date_of_becoming_member or None
+                shareholder.date_of_declaration_u_s_89 = date_of_declaration_u_s_89 or None
+                shareholder.beneficial_owner_name_address = beneficial_owner_name_address or None
+                shareholder.date_of_receipt_of_nomination = date_of_receipt_of_nomination or None
+                shareholder.nominee_name_address = nominee_name_address or None
+                shareholder.date_of_cessation_of_membership = date_of_cessation_of_membership or None
+                shareholder.allotment_transfer_no = allotment_transfer_no or None
+                shareholder.date_of_allotment_transfer = date_of_allotment_transfer or None
+                shareholder.number_of_shares = number_of_shares or None
+                shareholder.distinctive_numbers = distinctive_numbers or None
+                shareholder.folio_of_transferor = folio_of_transferor or None
+                shareholder.name_of_transferor = name_of_transferor or None
+                shareholder.date_of_issue_endorsement = date_of_issue_endorsement or None
+                shareholder.certificate_no = certificate_no or None
+                shareholder.is_active = True
+
+                session.commit()
+        except Exception as e:
+            self.error_message = f"Unable to save shareholder: {e}"
+            self.is_saving = False
+            return
+
+        self.is_saving = False
+        self.show_add_shareholder = False
+        self.edit_shareholder_id = ""
+        self.get_shareholder_master()
+
+    def get_shareholder_master(self):
+
+        if not self.edit_company_id:
+            self.shareholders = []
+            return
+
+        try:
+            cid = int(self.edit_company_id)
+        except (ValueError, TypeError):
+            self.shareholders = []
+            return
+
+        with SessionLocal() as session:
+
+            rows = (
+                session.query(ShareholderMaster)
+                .filter(
+                    ShareholderMaster.company_id == cid,
+                    ShareholderMaster.is_active == True,
+                )
+                .order_by(ShareholderMaster.id.desc())
+                .all()
+            )
+
+            self.shareholders = [
+                {
+                    "id": str(r.id),
+                    "company_id": str(r.company_id),
+
+                    "name_of_member": r.name_of_member or "",
+                    "address": r.address or "",
+                    "email": r.email or "",
+                    "registration_number_cin": r.registration_number_cin or "",
+                    "father_mother_spouse_name": r.father_mother_spouse_name or "",
+                    "status": r.status or "",
+                    "occupation": r.occupation or "",
+                    "pan": r.pan or "",
+                    "nationality": r.nationality or "",
+
+                    "date_of_becoming_member": r.date_of_becoming_member or "",
+                    "date_of_declaration_u_s_89": (
+                        r.date_of_declaration_u_s_89 or ""
+                    ),
+                    "beneficial_owner_name_address": (
+                        r.beneficial_owner_name_address or ""
+                    ),
+                    "date_of_receipt_of_nomination": (
+                        r.date_of_receipt_of_nomination or ""
+                    ),
+                    "nominee_name_address": r.nominee_name_address or "",
+                    "date_of_cessation_of_membership": (
+                        r.date_of_cessation_of_membership or ""
+                    ),
+
+                    "allotment_transfer_no": r.allotment_transfer_no or "",
+                    "date_of_allotment_transfer": (
+                        r.date_of_allotment_transfer or ""
+                    ),
+                    "number_of_shares": r.number_of_shares or "",
+                    "distinctive_numbers": r.distinctive_numbers or "",
+                    "folio_of_transferor": r.folio_of_transferor or "",
+                    "name_of_transferor": r.name_of_transferor or "",
+                    "date_of_issue_endorsement": (
+                        r.date_of_issue_endorsement or ""
+                    ),
+                    "certificate_no": r.certificate_no or "",
+                }
+                for r in rows
+            ]
+
+        
+    def show_company_tab(self):
+        self.edit_company_tab = "company"
+
+    def show_auditor_tab(self):
+        self.edit_company_tab = "auditor"
+
+    def show_shareholder_tab(self):
+        self.edit_company_tab = "shareholder"
+        return PortalState.get_shareholder_master()
+
+    def open_add_shareholder(self):
+        # Clear shareholder form
+        self.shareholder_name_of_member = ""
+        self.shareholder_address = ""
+        self.shareholder_email = ""
+        self.shareholder_registration_number_cin = ""
+        self.shareholder_father_mother_spouse_name = ""
+        self.shareholder_status = ""
+        self.shareholder_occupation = ""
+        self.shareholder_pan = ""
+        self.shareholder_nationality = ""
+
+        self.shareholder_date_of_becoming_member = ""
+        self.shareholder_date_of_declaration_u_s_89 = ""
+        self.shareholder_beneficial_owner_name_address = ""
+        self.shareholder_date_of_receipt_of_nomination = ""
+        self.shareholder_nominee_name_address = ""
+        self.shareholder_date_of_cessation_of_membership = ""
+
+        self.shareholder_allotment_transfer_no = ""
+        self.shareholder_date_of_allotment_transfer = ""
+        self.shareholder_number_of_shares = ""
+        self.shareholder_distinctive_numbers = ""
+        self.shareholder_folio_of_transferor = ""
+        self.shareholder_name_of_transferor = ""
+        self.shareholder_date_of_issue_endorsement = ""
+        self.shareholder_certificate_no = ""
+
+        self.edit_shareholder_id = ""
+        self.show_add_shareholder = True
+
+
+    def close_add_shareholder(self):
+        self.show_add_shareholder = False
     # ── User management ───────────────────────────────────────────────────────
 
     def switch_tab(self, tab: str):
@@ -1489,6 +2699,9 @@ class PortalState(rx.State):
         if not din or not name:
             self.form_director_error = "DIN and Name are required."
             return
+        if not din.isnumeric():
+            self.form_director_error = "DIN must contain only digits."
+            return
         if email and not _EMAIL_RE.match(email):
             self.form_director_error = "Enter a valid email address."
             return
@@ -1700,6 +2913,97 @@ class PortalState(rx.State):
         self.show_manage_directors = True
         self._load_company_directors()
 
+    # ── Share capital management ─────────────────────────────────────────────
+    def _set_share_capital_number(self, field: str, value):
+        text = "" if value is None else str(value)
+        # Keep the text while the user is typing; validation/conversion happens on save.
+        if text == "" or re.fullmatch(r"\d*(?:\.\d*)?", text):
+            setattr(self, field, text)
+
+    def set_share_capital_authorized_shares(self, value: str):
+        self._set_share_capital_number("share_capital_authorized_shares", value)
+    def set_share_capital_paid_up_shares(self, value: str):
+        self._set_share_capital_number("share_capital_paid_up_shares", value)
+    def set_share_capital_authorized_amount(self, value: str):
+        self._set_share_capital_number("share_capital_authorized_amount", value)
+    def set_share_capital_paid_up_amount(self, value: str):
+        self._set_share_capital_number("share_capital_paid_up_amount", value)
+    def set_share_capital_a_authorized_shares(self, value: str):
+        self._set_share_capital_number("share_capital_a_authorized_shares", value)
+    def set_share_capital_a_paid_up_shares(self, value: str):
+        self._set_share_capital_number("share_capital_a_paid_up_shares", value)
+    def set_share_capital_a_authorized_nominal(self, value: str):
+        self._set_share_capital_number("share_capital_a_authorized_nominal", value)
+    def set_share_capital_a_paid_up_nominal(self, value: str):
+        self._set_share_capital_number("share_capital_a_paid_up_nominal", value)
+    def set_share_capital_a_authorized_amount(self, value: str):
+        self._set_share_capital_number("share_capital_a_authorized_amount", value)
+    def set_share_capital_a_paid_up_amount(self, value: str):
+        self._set_share_capital_number("share_capital_a_paid_up_amount", value)
+    def set_share_capital_b_authorized_shares(self, value: str):
+        self._set_share_capital_number("share_capital_b_authorized_shares", value)
+    def set_share_capital_b_paid_up_shares(self, value: str):
+        self._set_share_capital_number("share_capital_b_paid_up_shares", value)
+    def set_share_capital_b_authorized_nominal(self, value: str):
+        self._set_share_capital_number("share_capital_b_authorized_nominal", value)
+    def set_share_capital_b_paid_up_nominal(self, value: str):
+        self._set_share_capital_number("share_capital_b_paid_up_nominal", value)
+    def set_share_capital_b_authorized_amount(self, value: str):
+        self._set_share_capital_number("share_capital_b_authorized_amount", value)
+    def set_share_capital_b_paid_up_amount(self, value: str):
+        self._set_share_capital_number("share_capital_b_paid_up_amount", value)
+
+    def reset_share_capital_form(self):
+        self.share_capital_type = ""
+        self.share_capital_authorized_shares = ""
+        self.share_capital_paid_up_shares = ""
+        self.share_capital_authorized_amount = ""
+        self.share_capital_paid_up_amount = ""
+        self.share_capital_a_authorized_shares = ""
+        self.share_capital_a_paid_up_shares = ""
+        self.share_capital_a_authorized_nominal = ""
+        self.share_capital_a_paid_up_nominal = ""
+        self.share_capital_a_authorized_amount = ""
+        self.share_capital_a_paid_up_amount = ""
+        self.share_capital_b_authorized_shares = ""
+        self.share_capital_b_paid_up_shares = ""
+        self.share_capital_b_authorized_nominal = ""
+        self.share_capital_b_paid_up_nominal = ""
+        self.share_capital_b_authorized_amount = ""
+        self.share_capital_b_paid_up_amount = ""
+
+    def open_share_capital(self, company_id: str):
+        self.share_capital_company_id = company_id
+    
+        self.reset_share_capital_form()
+        self.share_capital_type = "EQUITY"
+
+        self.load_share_capital(
+            company_id,
+            self.share_capital_type,
+        )
+
+        self.show_share_capital = True
+
+
+    def close_share_capital(self):
+        self.show_share_capital = False
+        self.show_class_a = False
+        self.show_class_b = False
+
+    def set_share_capital_type(self, value: str):
+        if value == "Equity Share Capital":
+            capital_type = "EQUITY"
+        elif value == "Preference Share Capital":
+            capital_type = "PREFERENCE"
+        else:
+            return
+
+        self.reset_share_capital_form()
+        self.share_capital_type = capital_type
+        self.load_share_capital(self.share_capital_company_id, capital_type)
+
+
     def close_manage_directors(self):
         self._clear_manage_directors()
 
@@ -1746,16 +3050,13 @@ class PortalState(rx.State):
         self.assoc_category = value
 
     def handle_assoc_original_appointment_date_change(self, value: str):
-        m = _ISO_DATE_RE.match(value)
-        self.assoc_original_appointment_date = f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m else value
+        self.assoc_original_appointment_date = value
 
     def handle_assoc_current_designation_date_change(self, value: str):
-        m = _ISO_DATE_RE.match(value)
-        self.assoc_current_designation_date = f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m else value
+        self.assoc_current_designation_date = value
 
     def handle_assoc_cessation_date_change(self, value: str):
-        m = _ISO_DATE_RE.match(value)
-        self.assoc_cessation_date = f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m else value
+        self.assoc_cessation_date = value
 
     def _validate_assoc_form(self) -> tuple[float | None, str] | None:
         """Shared validation for add/edit association forms.
@@ -1784,7 +3085,7 @@ class PortalState(rx.State):
             ("Date of Cessation", self.assoc_cessation_date),
         ):
             if value.strip() and not _parse_doi(value.strip()):
-                self.assoc_error = f"{label}: invalid date. Use DD/MM/YYYY."
+                self.assoc_error = f"{label}: invalid date. Use YYYY-MM-DD."
                 return None
         return share_val
 
@@ -2004,6 +3305,7 @@ class PortalState(rx.State):
                     "id": str(r.id),
                     "llpin": r.llpin,
                     "name": r.name,
+                    "pan": r.pan or "",
                     "non_client": bool(r.non_client),
                     "status": r.status,
                     "roc_name": r.roc_name or "",
@@ -2053,6 +3355,10 @@ class PortalState(rx.State):
         if self.show_add_llp_form:
             self.form_llpin = value
 
+    def handle_form_llp_pan_change(self, value: str):
+        if self.show_add_llp_form:
+            self.form_llp_pan = value
+
     def handle_form_llp_name_change(self, value: str):
         if self.show_add_llp_form:
             self.form_llp_name = value
@@ -2063,8 +3369,7 @@ class PortalState(rx.State):
 
     def handle_form_llp_doi_change(self, value: str):
         if self.show_add_llp_form:
-            m = _ISO_DATE_RE.match(value)
-            self.form_llp_doi = f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m else value
+            self.form_llp_doi = value
 
     def handle_form_llp_email_change(self, value: str):
         if self.show_add_llp_form:
@@ -2088,8 +3393,7 @@ class PortalState(rx.State):
 
     def handle_form_llp_strike_off_date_change(self, value: str):
         if self.show_add_llp_form:
-            m = _ISO_DATE_RE.match(value)
-            self.form_llp_strike_off_date = f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m else value
+            self.form_llp_strike_off_date = value
 
     def handle_form_llp_status_under_cirp_change(self, value: str):
         if self.show_add_llp_form:
@@ -2105,8 +3409,12 @@ class PortalState(rx.State):
             return
         llpin = self.form_llpin.strip()
         name = self.form_llp_name.strip()
+        pan = self.form_llp_pan.strip()
         if not llpin or not name:
             self.form_llp_error = "LLPIN and Name are required."
+            return
+        if not is_valid_llpin(llpin):
+            self.form_llp_error = "Not a Valid LLPIN."
             return
         email = self.form_llp_email.strip()
         if email and not _EMAIL_RE.match(email):
@@ -2114,11 +3422,11 @@ class PortalState(rx.State):
             return
         doi = self.form_llp_doi.strip()
         if doi and not _parse_doi(doi):
-            self.form_llp_error = "Invalid date of incorporation. Use DD/MM/YYYY."
+            self.form_llp_error = "Invalid date of incorporation. Use YYYY-MM-DD."
             return
         strike_off_date = self.form_llp_strike_off_date.strip()
         if strike_off_date and not _parse_doi(strike_off_date):
-            self.form_llp_error = "Invalid strike-off date. Use DD/MM/YYYY."
+            self.form_llp_error = "Invalid strike-off date. Use YYYY-MM-DD."
             return
         extra = {
             "roc_name": self.form_llp_roc_name.strip(),
@@ -2133,7 +3441,7 @@ class PortalState(rx.State):
         self._clear_llp_form()
         self.is_saving = True
         return PortalState.commit_save_llp(
-            llpin, name, extra["roc_name"], doi, email, extra["address"],
+            llpin, name, pan, extra["roc_name"], doi, email, extra["address"],
             extra["number_of_partners"], extra["number_of_designated_partners"],
             extra["total_obligation"], strike_off_date,
             extra["status_under_cirp"], extra["small_llp"],
@@ -2141,7 +3449,7 @@ class PortalState(rx.State):
         )
 
     def commit_save_llp(
-        self, llpin: str, name: str, roc_name: str = "", doi: str = "", email: str = "",
+        self, llpin: str, name: str, pan: str = "", roc_name: str = "", doi: str = "", email: str = "",
         address: str = "", number_of_partners: str = "", number_of_designated_partners: str = "",
         total_obligation: str = "", strike_off_date: str = "",
         status_under_cirp: str = "", small_llp: str = "",non_client: bool = False
@@ -2156,6 +3464,7 @@ class PortalState(rx.State):
                 LLP(
                     llpin=llpin,
                     name=name,
+                    pan=pan or None,
                     roc_name=roc_name or None,
                     date_of_incorporation=doi or None,
                     email=email or None,
@@ -2183,6 +3492,7 @@ class PortalState(rx.State):
                 self.edit_form_llp_is_non_client = bool(l.get("non_client", False))
                 self.edit_form_llpin = l["llpin"]
                 self.edit_form_llp_name = l["name"]
+                self.edit_form_llp_pan = l.get("pan", "")
                 self.edit_form_llp_roc_name = l["roc_name"]
                 self.edit_form_llp_doi = l["doi"]
                 self.edit_form_llp_email = l["email"]
@@ -2203,6 +3513,10 @@ class PortalState(rx.State):
         if self.show_edit_llp_form:
             self.edit_form_llpin = value
 
+    def handle_edit_form_llp_pan_change(self, value: str):
+        if self.show_edit_llp_form:
+            self.edit_form_llp_pan = value
+
     def handle_edit_form_llp_name_change(self, value: str):
         if self.show_edit_llp_form:
             self.edit_form_llp_name = value
@@ -2213,8 +3527,7 @@ class PortalState(rx.State):
 
     def handle_edit_form_llp_doi_change(self, value: str):
         if self.show_edit_llp_form:
-            m = _ISO_DATE_RE.match(value)
-            self.edit_form_llp_doi = f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m else value
+            self.edit_form_llp_doi = value
 
     def handle_edit_form_llp_email_change(self, value: str):
         if self.show_edit_llp_form:
@@ -2238,8 +3551,7 @@ class PortalState(rx.State):
 
     def handle_edit_form_llp_strike_off_date_change(self, value: str):
         if self.show_edit_llp_form:
-            m = _ISO_DATE_RE.match(value)
-            self.edit_form_llp_strike_off_date = f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m else value
+            self.edit_form_llp_strike_off_date = value
 
     def handle_edit_form_llp_status_under_cirp_change(self, value: str):
         if self.show_edit_llp_form:
@@ -2255,6 +3567,7 @@ class PortalState(rx.State):
             return
         llpin = self.edit_form_llpin.strip()
         name = self.edit_form_llp_name.strip()
+        pan = self.edit_form_llp_pan.strip()
         if not llpin or not name:
             self.edit_form_llp_error = "LLPIN and Name are required."
             return
@@ -2264,11 +3577,11 @@ class PortalState(rx.State):
             return
         doi = self.edit_form_llp_doi.strip()
         if doi and not _parse_doi(doi):
-            self.edit_form_llp_error = "Invalid date of incorporation. Use DD/MM/YYYY."
+            self.edit_form_llp_error = "Invalid date of incorporation. Use YYYY-MM-DD."
             return
         strike_off_date = self.edit_form_llp_strike_off_date.strip()
         if strike_off_date and not _parse_doi(strike_off_date):
-            self.edit_form_llp_error = "Invalid strike-off date. Use DD/MM/YYYY."
+            self.edit_form_llp_error = "Invalid strike-off date. Use YYYY-MM-DD."
             return
         lid = self.edit_llp_id
         extra = {
@@ -2284,7 +3597,7 @@ class PortalState(rx.State):
         self._clear_edit_llp_form()
         self.is_saving = True
         return PortalState.commit_edit_llp(
-            lid, llpin, name, extra["roc_name"], doi, email, extra["address"],
+            lid, llpin, name, pan, extra["roc_name"], doi, email, extra["address"],
             extra["number_of_partners"], extra["number_of_designated_partners"],
             extra["total_obligation"], strike_off_date,
             extra["status_under_cirp"], extra["small_llp"],
@@ -2292,7 +3605,7 @@ class PortalState(rx.State):
         )
 
     def commit_edit_llp(
-        self, llp_id: str, llpin: str, name: str, roc_name: str = "", doi: str = "", email: str = "",
+        self, llp_id: str, llpin: str, name: str, pan: str = "", roc_name: str = "", doi: str = "", email: str = "",
         address: str = "", number_of_partners: str = "", number_of_designated_partners: str = "",
         total_obligation: str = "", strike_off_date: str = "",
         status_under_cirp: str = "", small_llp: str = "", non_client: int = False
@@ -2314,6 +3627,7 @@ class PortalState(rx.State):
             if llp:
                 llp.llpin = llpin
                 llp.name = name
+                llp.pan = pan or None
                 llp.roc_name = roc_name or None
                 llp.date_of_incorporation = doi or None
                 llp.email = email or None
@@ -2406,12 +3720,10 @@ class PortalState(rx.State):
         self.llp_partner_designation = value
 
     def handle_llp_partner_appointment_date_change(self, value: str):
-        m = _ISO_DATE_RE.match(value)
-        self.llp_partner_appointment_date = f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m else value
+        self.llp_partner_appointment_date = value
 
     def handle_llp_partner_cessation_date_change(self, value: str):
-        m = _ISO_DATE_RE.match(value)
-        self.llp_partner_cessation_date = f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m else value
+        self.llp_partner_cessation_date = value
 
     def handle_llp_partner_is_signatory_change(self, value: str):
         self.llp_partner_is_signatory = value
@@ -2425,7 +3737,7 @@ class PortalState(rx.State):
             ("Cessation Date", self.llp_partner_cessation_date),
         ):
             if value.strip() and not _parse_doi(value.strip()):
-                self.llp_partner_error = f"{label}: invalid date. Use DD/MM/YYYY."
+                self.llp_partner_error = f"{label}: invalid date. Use YYYY-MM-DD."
                 return False
         return True
 
@@ -2715,6 +4027,1294 @@ class PortalState(rx.State):
         self._load_llp_companies()
 
 
+def company_details_tab() -> rx.Component:
+    return rx.vstack(
+        _form_checkbox(
+            "Non Client",
+            PortalState.is_edit_form_non_client,
+            PortalState.handle_edit_form_is_non_client_change,
+        ),
+
+        # ── Identification ────────────────────────────────────────
+        rx.text(
+            "Identification",
+            size="2",
+            weight="bold",
+            color="#667eea",
+        ),
+
+        rx.grid(
+            _form_input(
+                "CIN",
+                "e.g. U74999MH2021PTC123456",
+                PortalState.edit_form_cin,
+                PortalState.handle_edit_form_cin_change,
+            ),
+            _form_input(
+                "Registration Number",
+                "e.g. 123456",
+                PortalState.edit_form_registration_number,
+                PortalState.handle_edit_form_registration_number_change,
+            ),
+            columns="2",
+            spacing="3",
+            width="100%",
+        ),
+
+        _form_input(
+            "Company Name",
+            "Enter full company name",
+            PortalState.edit_form_name,
+            PortalState.handle_edit_form_name_change,
+        ),
+
+        rx.cond(
+            ~PortalState.is_edit_form_non_client,
+            _form_input(
+                "PAN",
+                "e.g. AAAAA0000A",
+                PortalState.edit_form_pan,
+                PortalState.handle_edit_form_pan_change,
+            ),
+        ),
+
+        # ── Jurisdiction & Classification ─────────────────────────
+        rx.cond(
+            ~PortalState.is_edit_form_non_client,
+            rx.vstack(
+                rx.text(
+                    "Jurisdiction",
+                    size="2",
+                    weight="bold",
+                    color="#667eea",
+                ),
+
+                rx.grid(
+                    _form_input(
+                        "ROC Name",
+                        "e.g. Registrar of Companies, Mumbai",
+                        PortalState.edit_form_roc_code,
+                        PortalState.handle_edit_form_roc_code_change,
+                    ),
+                    _form_input(
+                        "ROC Office",
+                        "e.g. Mumbai",
+                        PortalState.edit_form_roc_office,
+                        PortalState.handle_edit_form_roc_office_change,
+                    ),
+                    columns="2",
+                    spacing="3",
+                    width="100%",
+                ),
+
+                rx.grid(
+                    _form_input(
+                        "RD Name",
+                        "e.g. Regional Director, Western Region",
+                        PortalState.edit_form_rd_name,
+                        PortalState.handle_edit_form_rd_name_change,
+                    ),
+                    _form_input(
+                        "RD Region",
+                        "e.g. Western Region",
+                        PortalState.edit_form_rd_region,
+                        PortalState.handle_edit_form_rd_region_change,
+                    ),
+                    columns="2",
+                    spacing="3",
+                    width="100%",
+                ),
+
+                # ── Classification ───────────────────────────────
+                rx.text(
+                    "Classification",
+                    size="2",
+                    weight="bold",
+                    color="#667eea",
+                ),
+
+                rx.grid(
+                    _form_select(
+                        "Class",
+                        ["PUBLIC", "PRIVATE"],
+                        PortalState.edit_form_class,
+                        PortalState.handle_edit_form_class_change,
+                    ),
+                    _form_select(
+                        "Category",
+                        [
+                            "Company limited by Shares",
+                            "Company limited by Guarantee",
+                            "Unlimited Company",
+                        ],
+                        PortalState.edit_form_category,
+                        PortalState.handle_edit_form_category_change,
+                    ),
+                    columns="2",
+                    spacing="3",
+                    width="100%",
+                ),
+
+                _form_select(
+                    "Sub Category",
+                    [
+                        "Non-government company",
+                        "State government company",
+                        "Union government company",
+                        "Subsidiary of company incorporated outside India",
+                    ],
+                    PortalState.edit_form_sub_category,
+                    PortalState.handle_edit_form_sub_category_change,
+                ),
+
+                rx.grid(
+                    _form_select(
+                        "Listed Status",
+                        ["Listed", "Unlisted"],
+                        PortalState.edit_form_listed_status,
+                        PortalState.handle_edit_form_listed_status_change,
+                    ),
+                    _form_select(
+                        "Suspended at Stock Exchange",
+                        ["Yes", "No"],
+                        PortalState.edit_form_suspended_at_stock_exchange,
+                        PortalState.handle_edit_form_suspended_change,
+                    ),
+                    columns="2",
+                    spacing="3",
+                    width="100%",
+                ),
+
+                # ── Financials ───────────────────────────────────
+                rx.text(
+                    "Financials",
+                    size="2",
+                    weight="bold",
+                    color="#667eea",
+                ),
+
+                rx.grid(
+                    rx.vstack(
+                        rx.text(
+                            "Authorised Capital (₹)",
+                            size="2",
+                            weight="bold",
+                            color="#333",
+                        ),
+                        rx.el.input(
+                            placeholder="e.g. 1000000",
+                            value=PortalState.edit_form_authorised_capital,
+                            on_change=PortalState.handle_edit_form_authorised_capital_change,
+                            type="number",
+                            min="0",
+                            step="1",
+                            style={
+                                "width": "100%",
+                                "padding": "0.625rem 0.875rem",
+                                "border_radius": "0.5rem",
+                                "border": "2px solid #d0d0d0",
+                                "background_color": "white",
+                                "font_size": "0.95rem",
+                                "color": "black",
+                                "outline": "none",
+                                "box_sizing": "border-box",
+                            },
+                        ),
+                        spacing="1",
+                        width="100%",
+                    ),
+
+                    rx.vstack(
+                        rx.text(
+                            "Paid Up Capital (₹)",
+                            size="2",
+                            weight="bold",
+                            color="#333",
+                        ),
+                        rx.el.input(
+                            placeholder="e.g. 500000",
+                            value=PortalState.edit_form_paid_up_capital,
+                            on_change=PortalState.handle_edit_form_paid_up_capital_change,
+                            type="number",
+                            min="0",
+                            step="1",
+                            style={
+                                "width": "100%",
+                                "padding": "0.625rem 0.875rem",
+                                "border_radius": "0.5rem",
+                                "border": "2px solid #d0d0d0",
+                                "background_color": "white",
+                                "font_size": "0.95rem",
+                                "color": "black",
+                                "outline": "none",
+                                "box_sizing": "border-box",
+                            },
+                        ),
+                        spacing="1",
+                        width="100%",
+                    ),
+
+                    columns="2",
+                    spacing="3",
+                    width="100%",
+                ),
+
+                _form_input(
+                    "Number of Members",
+                    "e.g. 7",
+                    PortalState.edit_form_number_of_members,
+                    PortalState.handle_edit_form_number_of_members_change,
+                ),
+
+                # ── Important Dates ───────────────────────────────
+                rx.text(
+                    "Important Dates",
+                    size="2",
+                    weight="bold",
+                    color="#667eea",
+                ),
+
+                rx.grid(
+                    _form_date_input(
+                        "Date of Incorporation",
+                        PortalState.edit_form_doi,
+                        PortalState.handle_edit_form_doi_change,
+                    ),
+                    _form_date_input(
+                        "Date of Last AGM",
+                        PortalState.edit_form_date_of_last_agm,
+                        PortalState.handle_edit_form_date_of_last_agm_change,
+                    ),
+                    _form_date_input(
+                        "Date of Balance Sheet",
+                        PortalState.edit_form_date_of_balance_sheet,
+                        PortalState.handle_edit_form_date_of_balance_sheet_change,
+                    ),
+                    columns="2",
+                    spacing="3",
+                    width="100%",
+                ),
+
+                # ── Contact & Address ─────────────────────────────
+                rx.text(
+                    "Contact & Address",
+                    size="2",
+                    weight="bold",
+                    color="#667eea",
+                ),
+
+                rx.grid(
+                    _form_input(
+                        "Email Address",
+                        "e.g. company@example.com",
+                        PortalState.edit_form_email,
+                        PortalState.handle_edit_form_email_change,
+                        "email",
+                    ),
+                    _form_input(
+                        "Phone",
+                        "e.g. 022-12345678",
+                        PortalState.edit_form_phone,
+                        PortalState.handle_edit_form_phone_change,
+                    ),
+                    columns="2",
+                    spacing="3",
+                    width="100%",
+                ),
+
+                _form_textarea(
+                    "Registered Address",
+                    "Building/Street, Area",
+                    PortalState.edit_form_address,
+                    PortalState.handle_edit_form_address_change,
+                ),
+
+                rx.grid(
+                    _form_input(
+                        "Pin Code",
+                        "e.g. 400001",
+                        PortalState.edit_form_pin_code,
+                        PortalState.handle_edit_form_pin_code_change,
+                    ),
+                    _form_input(
+                        "Country",
+                        "e.g. India",
+                        PortalState.edit_form_country,
+                        PortalState.handle_edit_form_country_change,
+                    ),
+                    columns="2",
+                    spacing="3",
+                    width="100%",
+                ),
+            ),
+        ),
+
+        spacing="4",
+        width="100%",
+    )
+
+def auditor_tab() -> rx.Component:
+    return rx.vstack(
+        rx.heading(
+            "Auditor Details",
+            size="4",
+        ),
+
+        # --------------------------------
+        # E-Form Details
+        # --------------------------------
+
+        rx.heading(
+            "E-Form Details",
+            size="3",
+        ),
+
+        rx.vstack(
+            rx.text("SRN of E-Form ADT-1"),
+
+            rx.input(
+                value=PortalState.edit_auditor_srn,
+                on_change=PortalState.handle_edit_auditor_srn_change,
+                placeholder="Enter SRN",
+                width="100%",
+            ),
+
+            width="100%",
+        ),
+
+        # --------------------------------
+        # Auditor Category
+        # --------------------------------
+
+        rx.heading(
+            "Category of Auditor",
+            size="3",
+        ),
+
+        rx.radio_group(
+            ["Individual", "Firm"],
+            value=PortalState.edit_auditor_category,
+            on_change=PortalState.handle_edit_auditor_category_change,
+        ),
+
+        # --------------------------------
+        # Firm Details
+        # --------------------------------
+
+        rx.cond(
+            PortalState.edit_auditor_category == "Firm",
+
+            rx.vstack(
+                rx.heading(
+                    "Firm Details",
+                    size="3",
+                ),
+
+                rx.hstack(
+                    rx.vstack(
+                        rx.text("Name of the Firm"),
+
+                        rx.input(
+                            value=PortalState.edit_auditor_firm_name,
+                            on_change=PortalState.handle_edit_auditor_firm_name_change,
+                            width="100%",
+                        ),
+
+                        width="50%",
+                    ),
+
+                    rx.vstack(
+                        rx.text("Firm Membership No"),
+
+                        rx.input(
+                            value=PortalState.edit_auditor_firm_membership_no,
+                            on_change=PortalState.handle_edit_auditor_firm_membership_no_change,
+                            width="100%",
+                        ),
+
+                        width="50%",
+                    ),
+
+                    width="100%",
+                    spacing="4",
+                ),
+
+                rx.hstack(
+                    rx.vstack(
+                        rx.text("Firm PAN Number"),
+
+                        rx.input(
+                            value=PortalState.edit_auditor_firm_pan,
+                            on_change=PortalState.handle_edit_auditor_firm_pan_change,
+                            width="100%",
+                        ),
+
+                        width="50%",
+                    ),
+
+                    rx.vstack(
+                        rx.text("Firm's Email ID"),
+
+                        rx.input(
+                            value=PortalState.edit_auditor_firm_email,
+                            on_change=PortalState.handle_edit_auditor_firm_email_change,
+                            width="100%",
+                        ),
+
+                        width="50%",
+                    ),
+
+                    width="100%",
+                    spacing="4",
+                ),
+
+                rx.text("Address"),
+
+                rx.text_area(
+                    value=PortalState.edit_auditor_address,
+                    on_change=PortalState.handle_edit_auditor_address_change,
+                    width="100%",
+                ),
+
+                rx.hstack(
+                    rx.vstack(
+                        rx.text("Country"),
+
+                        rx.input(
+                            value=PortalState.edit_auditor_country,
+                            on_change=PortalState.handle_edit_auditor_country,
+                            width="100%",
+                        ),
+
+                        width="25%",
+                    ),
+
+                    rx.vstack(
+                        rx.text("State"),
+
+                        rx.input(
+                            value=PortalState.edit_auditor_state,
+                            on_change=PortalState.handle_edit_auditor_state,
+                            width="100%",
+                        ),
+
+                        width="25%",
+                    ),
+
+                    rx.vstack(
+                        rx.text("City"),
+
+                        rx.input(
+                            value=PortalState.edit_auditor_city,
+                            on_change=PortalState.handle_edit_auditor_city,
+                            width="100%",
+                        ),
+
+                        width="25%",
+                    ),
+
+                    rx.vstack(
+                        rx.text("PIN Code"),
+
+                        rx.input(
+                            value=PortalState.edit_auditor_pin_code,
+                            on_change=PortalState.handle_edit_auditor_pin_code,
+                            width="100%",
+                        ),
+
+                        width="25%",
+                    ),
+
+                    width="100%",
+                    spacing="4",
+                ),
+
+                width="100%",
+                spacing="4",
+            ),
+
+            rx.fragment(),
+        ),
+
+        # --------------------------------
+        # Auditor / Partner Details
+        # --------------------------------
+
+        rx.heading(
+            "Auditor Details",
+            size="3",
+        ),
+
+        rx.hstack(
+            rx.vstack(
+                rx.text("Partner/Proprietor Membership No"),
+
+                rx.input(
+                    value=PortalState.edit_auditor_partner_membership_no,
+                    on_change=PortalState.handle_edit_auditor_partner_membership_no,
+                    width="100%",
+                ),
+
+                width="50%",
+            ),
+
+            rx.vstack(
+                rx.text("Name of the Auditor"),
+
+                rx.input(
+                    value=PortalState.edit_auditor_name,
+                    on_change=PortalState.handle_edit_auditor_name,
+                    width="100%",
+                ),
+
+                width="50%",
+            ),
+
+            width="100%",
+            spacing="4",
+        ),
+
+        rx.hstack(
+            rx.vstack(
+                rx.text("PAN Number of Auditor"),
+
+                rx.input(
+                    value=PortalState.edit_auditor_pan,
+                    on_change=PortalState.handle_edit_auditor_pan,
+                    width="100%",
+                ),
+
+                width="50%",
+            ),
+
+            rx.vstack(
+                rx.text("Mobile Number"),
+
+                rx.input(
+                    value=PortalState.edit_auditor_mobile,
+                    on_change=PortalState.handle_edit_auditor_mobile,
+                    width="100%",
+                ),
+
+                width="50%",
+            ),
+
+            width="100%",
+            spacing="4",
+        ),
+
+        rx.hstack(
+            rx.vstack(
+                rx.text("Email ID"),
+
+                rx.input(
+                    value=PortalState.edit_auditor_email,
+                    on_change=PortalState.handle_edit_auditor_email,
+                    width="100%",
+                ),
+
+                width="50%",
+            ),
+
+            rx.vstack(
+                rx.text("Designation"),
+
+                rx.input(
+                    value=PortalState.edit_auditor_designation,
+                    on_change=PortalState.handle_edit_auditor_designation,
+                    width="100%",
+                ),
+
+                width="50%",
+            ),
+
+            width="100%",
+            spacing="4",
+        ),
+
+        width="100%",
+        spacing="4",
+    )
+
+def shareholder_master_tab() -> rx.Component:
+    return rx.vstack(
+        rx.heading(
+            "Shareholder Master",
+            size="4",
+        ),
+
+        rx.button(
+            rx.hstack(
+                rx.icon("plus", size=16),
+                rx.text("Add Shareholder"),
+                spacing="2",
+            ),
+            on_click=PortalState.open_add_shareholder,
+            background="#0d8bf2",
+            color="white",
+            size="3",
+        ),
+
+        rx.divider(),
+
+        rx.cond(
+            PortalState.shareholders.length() > 0,
+
+            rx.box(
+                rx.table.root(
+                    rx.table.header(
+                        rx.table.row(
+                            rx.table.column_header_cell("Name of Member"),
+                            rx.table.column_header_cell("Email"),
+                            rx.table.column_header_cell("PAN"),
+                            rx.table.column_header_cell("Status"),
+                            rx.table.column_header_cell("Occupation"),
+                            rx.table.column_header_cell("Actions"),
+                        )
+                    ),
+
+                    rx.table.body(
+                        rx.foreach(
+                            PortalState.shareholders,
+                            lambda shareholder: rx.table.row(
+                                rx.table.cell(shareholder["name_of_member"]),
+                                rx.table.cell(shareholder["email"]),
+                                rx.table.cell(shareholder["pan"]),
+                                rx.table.cell(shareholder["status"]),
+                                rx.table.cell(shareholder["occupation"]),
+
+                                rx.table.cell(
+                                    rx.button(
+                                        rx.icon("pencil", size=14),
+                                        on_click=lambda: PortalState.edit_shareholder(shareholder["id"]),
+                                        color_scheme="blue",
+                                        variant="ghost",
+                                        size="1",
+                                    )
+                                ),
+                            ),
+                        )
+                    ),
+                ),
+                width="100%",
+                overflow_x="auto",
+                border="1px solid #e5e7eb",
+                border_radius="8px",
+            ),
+
+            rx.text(
+                "No shareholders found.",
+                color="#888",
+            ),
+        ),
+        # Add Shareholder dialog
+        shareholder_form_dialog(),
+
+        width="100%",
+        spacing="4",
+    )
+
+def shareholder_form_dialog() -> rx.Component:
+    return rx.cond(
+        PortalState.show_add_shareholder,
+
+        rx.box(
+            rx.box(
+                rx.vstack(
+
+                    # --------------------------------------------------
+                    # Header
+                    # --------------------------------------------------
+
+                    rx.hstack(
+                        rx.icon(
+                            "user-round-plus",
+                            size=22,
+                            color="#667eea",
+                        ),
+
+                        rx.heading(
+                            rx.cond(
+                                PortalState.edit_shareholder_id != "",
+                                "Edit Shareholder",
+                                "Add Shareholder",
+                            ),
+                            size="5",
+                            color="#1a1a1a",
+                            weight="bold",
+                        ),
+
+                        rx.spacer(),
+
+                        rx.button(
+                            rx.icon("x", size=18),
+                            on_click=PortalState.close_add_shareholder,
+                            variant="ghost",
+                            size="1",
+                        ),
+
+                        width="100%",
+                        align_items="center",
+                    ),
+
+                    rx.divider(),
+
+                    # --------------------------------------------------
+                    # Member Details
+                    # --------------------------------------------------
+
+                    rx.text(
+                        "Member Details",
+                        size="3",
+                        weight="bold",
+                        color="#667eea",
+                    ),
+
+                    rx.grid(
+
+                        rx.vstack(
+                            rx.text("Name of the Member"),
+                            rx.input(
+                                value=PortalState.shareholder_name_of_member,
+                                on_change=PortalState.handle_shareholder_name_of_member_change,
+                                placeholder="Enter member name",
+                                width="100%",
+                            ),
+                            width="100%",
+                        ),
+
+                        rx.vstack(
+                            rx.text("Registration Number / CIN"),
+                            rx.input(
+                                value=PortalState.shareholder_registration_number_cin,
+                                on_change=PortalState.handle_shareholder_registration_number_cin_change,
+                                placeholder="Enter registration number / CIN",
+                                width="100%",
+                            ),
+                            width="100%",
+                        ),
+
+                        columns="2",
+                        spacing="4",
+                        width="100%",
+                    ),
+
+                    rx.vstack(
+                        rx.text("Address of the Member"),
+                        rx.text_area(
+                            value=PortalState.shareholder_address,
+                            on_change=PortalState.handle_shareholder_address_change,
+                            placeholder="Enter member address",
+                            width="100%",
+                        ),
+                        width="100%",
+                    ),
+
+                    rx.grid(
+
+                        rx.vstack(
+                            rx.text("Email ID"),
+                            rx.input(
+                                value=PortalState.shareholder_email,
+                                on_change=PortalState.handle_shareholder_email_change,
+                                placeholder="Enter email ID",
+                                type="email",
+                                width="100%",
+                            ),
+                            width="100%",
+                        ),
+
+                        rx.vstack(
+                            rx.text("Father's / Mother's / Spouse's Name"),
+                            rx.input(
+                                value=PortalState.shareholder_father_mother_spouse_name,
+                                on_change=PortalState.handle_shareholder_father_mother_spouse_name_change,
+                                placeholder="Enter name",
+                                width="100%",
+                            ),
+                            width="100%",
+                        ),
+
+                        columns="2",
+                        spacing="4",
+                        width="100%",
+                    ),
+
+                    rx.grid(
+
+                        rx.vstack(
+                            rx.text("Status"),
+                            rx.select(
+                                [
+                                    "Active",
+                                    "Inactive",
+                                    "Nominee",
+                                    "Other",
+                                ],
+                                value=PortalState.shareholder_status,
+                                on_change=PortalState.handle_shareholder_status_change,
+                                placeholder="Select status",
+                                width="100%",
+                            ),
+                            width="100%",
+                        ),
+
+                        rx.vstack(
+                            rx.text("Occupation"),
+                            rx.input(
+                                value=PortalState.shareholder_occupation,
+                                on_change=PortalState.handle_shareholder_occupation_change,
+                                placeholder="Enter occupation",
+                                width="100%",
+                            ),
+                            width="100%",
+                        ),
+
+                        columns="2",
+                        spacing="4",
+                        width="100%",
+                    ),
+
+                    rx.grid(
+
+                        rx.vstack(
+                            rx.text("PAN No"),
+                            rx.input(
+                                value=PortalState.shareholder_pan,
+                                on_change=PortalState.handle_shareholder_pan_change,
+                                placeholder="Enter PAN number",
+                                width="100%",
+                            ),
+                            width="100%",
+                        ),
+
+                        rx.vstack(
+                            rx.text("Nationality"),
+                            rx.input(
+                                value=PortalState.shareholder_nationality,
+                                on_change=PortalState.handle_shareholder_nationality_change,
+                                placeholder="Enter nationality",
+                                width="100%",
+                            ),
+                            width="100%",
+                        ),
+
+                        columns="2",
+                        spacing="4",
+                        width="100%",
+                    ),
+
+                    # --------------------------------------------------
+                    # Membership Details
+                    # --------------------------------------------------
+
+                    rx.text(
+                        "Membership Details",
+                        size="3",
+                        weight="bold",
+                        color="#667eea",
+                    ),
+
+                    rx.grid(
+
+                        rx.vstack(
+                            rx.text("Date of Becoming Member"),
+                            rx.input(
+                                type="date",
+                                value=PortalState.shareholder_date_of_becoming_member,
+                                on_change=PortalState.handle_shareholder_date_of_becoming_member_change,
+                                width="100%",
+                            ),
+                            width="100%",
+                        ),
+
+                        rx.vstack(
+                            rx.text(
+                                "Date of Declaration U/S 89, if applicable"
+                            ),
+                            rx.input(
+                                type="date",
+                                value=PortalState.shareholder_date_of_declaration_u_s_89,
+                                on_change=PortalState.handle_shareholder_date_of_declaration_u_s_89_change,
+                                width="100%",
+                            ),
+                            width="100%",
+                        ),
+
+                        columns="2",
+                        spacing="4",
+                        width="100%",
+                    ),
+
+                    rx.vstack(
+                        rx.text(
+                            "Name and Address of Beneficial Owner"
+                        ),
+                        rx.text_area(
+                            value=PortalState.shareholder_beneficial_owner_name_address,
+                            on_change=PortalState.handle_shareholder_beneficial_owner_name_address_change,
+                            placeholder="Enter beneficial owner name and address",
+                            width="100%",
+                        ),
+                        width="100%",
+                    ),
+
+                    rx.grid(
+
+                        rx.vstack(
+                            rx.text(
+                                "Date of Receipt of Nomination, if applicable"
+                            ),
+                            rx.input(
+                                type="date",
+                                value=PortalState.shareholder_date_of_receipt_of_nomination,
+                                on_change=PortalState.handle_shareholder_date_of_receipt_of_nomination_change,
+                                width="100%",
+                            ),
+                            width="100%",
+                        ),
+
+                        rx.vstack(
+                            rx.text("Date of Cessation of Membership"),
+                            rx.input(
+                                type="date",
+                                value=PortalState.shareholder_date_of_cessation_of_membership,
+                                on_change=PortalState.handle_shareholder_date_of_cessation_of_membership_change,
+                                width="100%",
+                            ),
+                            width="100%",
+                        ),
+
+                        columns="2",
+                        spacing="4",
+                        width="100%",
+                    ),
+
+                    rx.vstack(
+                        rx.text("Name and Address of Nominee"),
+                        rx.text_area(
+                            value=PortalState.shareholder_nominee_name_address,
+                            on_change=PortalState.handle_shareholder_nominee_name_address_change,
+                            placeholder="Enter nominee name and address",
+                            width="100%",
+                        ),
+                        width="100%",
+                    ),
+
+                    # --------------------------------------------------
+                    # Share / Transfer Details
+                    # --------------------------------------------------
+
+                    rx.text(
+                        "Share / Transfer Details",
+                        size="3",
+                        weight="bold",
+                        color="#667eea",
+                    ),
+
+                    rx.grid(
+
+                        rx.vstack(
+                            rx.text("Allotment No / Transfer No"),
+                            rx.input(
+                                value=PortalState.shareholder_allotment_transfer_no,
+                                on_change=PortalState.handle_shareholder_allotment_transfer_no_change,
+                                placeholder="Enter allotment / transfer number",
+                                width="100%",
+                            ),
+                            width="100%",
+                        ),
+
+                        rx.vstack(
+                            rx.text("Date of Allotment / Transfer"),
+                            rx.input(
+                                type="date",
+                                value=PortalState.shareholder_date_of_allotment_transfer,
+                                on_change=PortalState.handle_shareholder_date_of_allotment_transfer_change,
+                                width="100%",
+                            ),
+                            width="100%",
+                        ),
+
+                        columns="2",
+                        spacing="4",
+                        width="100%",
+                    ),
+
+                    rx.grid(
+
+                        rx.vstack(
+                            rx.text("No. of Shares Allotted / Transferred"),
+                            rx.input(
+                                value=PortalState.shareholder_number_of_shares,
+                                on_change=PortalState.handle_shareholder_number_of_shares_change,
+                                placeholder="Enter number of shares",
+                                width="100%",
+                            ),
+                            width="100%",
+                        ),
+
+                        rx.vstack(
+                            rx.text("Distinctive Numbers"),
+                            rx.input(
+                                value=PortalState.shareholder_distinctive_numbers,
+                                on_change=PortalState.handle_shareholder_distinctive_numbers_change,
+                                placeholder="Enter distinctive numbers",
+                                width="100%",
+                            ),
+                            width="100%",
+                        ),
+
+                        columns="2",
+                        spacing="4",
+                        width="100%",
+                    ),
+
+                    rx.grid(
+
+                        rx.vstack(
+                            rx.text("Folio of Transferor, if applicable"),
+                            rx.input(
+                                value=PortalState.shareholder_folio_of_transferor,
+                                on_change=PortalState.handle_shareholder_folio_of_transferor_change,
+                                placeholder="Enter folio number",
+                                width="100%",
+                            ),
+                            width="100%",
+                        ),
+
+                        rx.vstack(
+                            rx.text("Name of the Transferor, if applicable"),
+                            rx.input(
+                                value=PortalState.shareholder_name_of_transferor,
+                                on_change=PortalState.handle_shareholder_name_of_transferor_change,
+                                placeholder="Enter transferor name",
+                                width="100%",
+                            ),
+                            width="100%",
+                        ),
+
+                        columns="2",
+                        spacing="4",
+                        width="100%",
+                    ),
+
+                    rx.grid(
+
+                        rx.vstack(
+                            rx.text(
+                                "Date of Issue / Endorsement of Share Certificate"
+                            ),
+                            rx.input(
+                                value=PortalState.shareholder_date_of_issue_endorsement,
+                                on_change=PortalState.handle_shareholder_date_of_issue_endorsement_change,
+                                type="date",
+                                width="100%",
+                            ),
+                            width="100%",
+                        ),
+
+                        rx.vstack(
+                            rx.text("Certificate No."),
+                            rx.input(
+                                value=PortalState.shareholder_certificate_no,
+                                on_change=PortalState.handle_shareholder_certificate_no_change,
+                                placeholder="Enter certificate number",
+                                width="100%",
+                            ),
+                            width="100%",
+                        ),
+
+                        columns="2",
+                        spacing="4",
+                        width="100%",
+                    ),
+
+                    # --------------------------------------------------
+                    # Footer
+                    # --------------------------------------------------
+
+                    rx.divider(),
+
+                    rx.hstack(
+                        rx.button(
+                            "Cancel",
+                            on_click=PortalState.close_add_shareholder,
+                            variant="outline",
+                        ),
+
+                        rx.spacer(),
+
+                        rx.button(
+                            rx.hstack(
+                                rx.icon("save", size=16),
+                                rx.text("Save Shareholder"),
+                                spacing="2",
+                            ),
+                            on_click=PortalState.save_shareholder,
+                            background="#667eea",
+                            color="white",
+                        ),
+
+                        width="100%",
+                    ),
+
+                    width="100%",
+                    spacing="4",
+                ),
+
+                width="850px",
+                max_width="95vw",
+                max_height="90vh",
+                overflow_y="auto",
+                padding="1.5rem",
+                background="white",
+                border_radius="12px",
+                box_shadow="0 10px 40px rgba(0,0,0,0.2)",
+            ),
+
+            position="fixed",
+            top="0",
+            left="0",
+            width="100vw",
+            height="100vh",
+            background="rgba(0,0,0,0.45)",
+            z_index="2000",
+            display="flex",
+            align_items="center",
+            justify_content="center",
+        ),
+    )
+
+def edit_company_tabs() -> rx.Component:
+    return rx.vstack(
+        rx.hstack(
+            # Company Details
+            rx.button(
+                "Company Details",
+                on_click=PortalState.show_company_tab,
+                background=rx.cond(
+                    PortalState.edit_company_tab == "company",
+                    "#3b82f6",
+                    "white",
+                ),
+                color=rx.cond(
+                    PortalState.edit_company_tab == "company",
+                    "white",
+                    "#374151",
+                ),
+                border=rx.cond(
+                    PortalState.edit_company_tab == "company",
+                    "1px solid #3b82f6",
+                    "1px solid #d1d5db",
+                ),
+                border_radius="6px 6px 0 0",
+                padding="0.6rem 1.2rem",
+                cursor="pointer",
+            ),
+
+            # Auditor Details
+            rx.button(
+                "Auditor Details",
+                on_click=PortalState.show_auditor_tab,
+                background=rx.cond(
+                    PortalState.edit_company_tab == "auditor",
+                    "#3b82f6",
+                    "white",
+                ),
+                color=rx.cond(
+                    PortalState.edit_company_tab == "auditor",
+                    "white",
+                    "#374151",
+                ),
+                border=rx.cond(
+                    PortalState.edit_company_tab == "auditor",
+                    "1px solid #3b82f6",
+                    "1px solid #d1d5db",
+                ),
+                border_radius="6px 6px 0 0",
+                padding="0.6rem 1.2rem",
+                cursor="pointer",
+            ),
+
+            # Shareholder Master
+            rx.button(
+                "Shareholder Master",
+                on_click=PortalState.show_shareholder_tab,
+                background=rx.cond(
+                    PortalState.edit_company_tab == "shareholder",
+                    "#3b82f6",
+                    "white",
+                ),
+                color=rx.cond(
+                    PortalState.edit_company_tab == "shareholder",
+                    "white",
+                    "#374151",
+                ),
+                border=rx.cond(
+                    PortalState.edit_company_tab == "shareholder",
+                    "1px solid #3b82f6",
+                    "1px solid #d1d5db",
+                ),
+                border_radius="6px 6px 0 0",
+                padding="0.6rem 1.2rem",
+                cursor="pointer",
+            ),
+
+            rx.button(
+                "Share Capital",
+                on_click=PortalState.show_share_capital_tab,
+                background=rx.cond(
+                    PortalState.edit_company_tab == "share_capital",
+                    "#3b82f6",
+                    "white",
+                ),
+                color=rx.cond(
+                    PortalState.edit_company_tab == "share_capital",
+                    "white",
+                    "#374151",
+                ),
+                border=rx.cond(
+                    PortalState.edit_company_tab == "share_capital",
+                    "1px solid #3b82f6",
+                    "1px solid #d1d5db",
+                ),
+                border_radius="6px 6px 0 0",
+                padding="0.6rem 1.2rem",
+                cursor="pointer",
+            ),
+
+            spacing="1",
+            align_items="end",
+        ),
+
+        rx.divider(),
+
+        # Tab content
+        rx.cond(
+            PortalState.edit_company_tab == "company",
+
+            company_details_tab(),
+
+            rx.cond(
+                PortalState.edit_company_tab == "auditor",
+
+                auditor_tab(),
+
+                rx.cond(
+                    PortalState.edit_company_tab == "share_capital",
+
+                    share_capital_tab(),
+
+                    shareholder_master_tab(),
+                ),
+            ),
+        ),
+
+        width="100%",
+        spacing="4",
+    )
+
 def login_page() -> rx.Component:
     return rx.hstack(
         rx.vstack(
@@ -2929,8 +5529,7 @@ def _form_date_input(label: str, value, on_change) -> rx.Component:
     return rx.vstack(
         rx.text(label, size="2", weight="bold", color="#333"),
         rx.el.input(
-            type="text",
-            placeholder="DD/MM/YYYY",
+            type="date",
             value=value,
             on_change=on_change,
             style={
@@ -2945,7 +5544,7 @@ def _form_date_input(label: str, value, on_change) -> rx.Component:
                 "box_sizing": "border-box",
             },
         ),
-        rx.text("Format: DD/MM/YYYY (e.g. 15/08/2024)", size="1", color="#999"),
+        rx.text("Format: YYYY-MM-DD", size="1", color="#999"),
         spacing="1",
         width="100%",
     )
@@ -3009,6 +5608,10 @@ def add_company_dialog() -> rx.Component:
                     _form_input("Company Name", "Enter full company name", PortalState.form_name, PortalState.handle_form_name_change),
 
                     rx.cond(~PortalState.is_non_client, rx.vstack(
+                    rx.grid(
+                        _form_input("PAN", "e.g. AAAAA0000A", PortalState.form_pan, PortalState.handle_form_pan_change),
+                            columns="2", spacing="3", width="100%",
+                    ),   
                     # ── Jurisdiction ────────────────────────────────────────────
                     rx.text("Jurisdiction", size="2", weight="bold", color="#667eea"),
                     rx.grid(
@@ -3157,9 +5760,16 @@ def edit_company_dialog() -> rx.Component:
         rx.box(
             rx.box(
                 rx.vstack(
+
+                    # Header
                     rx.hstack(
                         rx.icon("pencil", size=22, color="#667eea"),
-                        rx.heading("Edit Company", size="5", color="#1a1a1a", weight="bold"),
+                        rx.heading(
+                            "Edit Company",
+                            size="5",
+                            color="#1a1a1a",
+                            weight="bold",
+                        ),
                         rx.spacer(),
                         rx.button(
                             rx.icon("x", size=18),
@@ -3170,101 +5780,27 @@ def edit_company_dialog() -> rx.Component:
                         width="100%",
                         align_items="center",
                     ),
+
                     rx.divider(),
-                    _form_checkbox("Non Client", PortalState.is_edit_form_non_client, PortalState.handle_edit_form_is_non_client_change),
-                    # ── Identification ────────────────────────────────────────
-                    rx.text("Identification", size="2", weight="bold", color="#667eea"),
-                    rx.grid(
-                        _form_input("CIN", "e.g. U74999MH2021PTC123456", PortalState.edit_form_cin, PortalState.handle_edit_form_cin_change),
-                        _form_input("Registration Number", "e.g. 123456", PortalState.edit_form_registration_number, PortalState.handle_edit_form_registration_number_change),
-                        columns="2", spacing="3", width="100%",
-                    ),
-                    _form_input("Company Name", "Enter full company name", PortalState.edit_form_name, PortalState.handle_edit_form_name_change),
-                    rx.cond(
-                        ~PortalState.is_edit_form_non_client,
-                        rx.vstack(
-                            rx.text("Jurisdiction", size="2", weight="bold", color="#667eea"),
-                            rx.grid(
-                                _form_input("ROC Name", "e.g. Registrar of Companies, Mumbai", PortalState.edit_form_roc_code, PortalState.handle_edit_form_roc_code_change),
-                                _form_input("ROC Office", "e.g. Mumbai", PortalState.edit_form_roc_office, PortalState.handle_edit_form_roc_office_change),
-                                columns="2", spacing="3", width="100%",
-                            ),
-                            rx.grid(
-                                _form_input("RD Name", "e.g. Regional Director, Western Region", PortalState.edit_form_rd_name, PortalState.handle_edit_form_rd_name_change),
-                                _form_input("RD Region", "e.g. Western Region", PortalState.edit_form_rd_region, PortalState.handle_edit_form_rd_region_change),
-                                columns="2", spacing="3", width="100%",
-                            ),
-                            rx.text("Classification", size="2", weight="bold", color="#667eea"),
-                            rx.grid(
-                                _form_select("Class", ["PUBLIC", "PRIVATE"], PortalState.edit_form_class, PortalState.handle_edit_form_class_change),
-                                _form_select("Category", ["Company limited by Shares", "Company limited by Guarantee", "Unlimited Company"], PortalState.edit_form_category, PortalState.handle_edit_form_category_change),
-                                columns="2", spacing="3", width="100%",
-                            ),
-                            _form_select(
-                                "Sub Category",
-                                ["Non-government company", "State government company", "Union government company", "Subsidiary of company incorporated outside India"],
-                                PortalState.edit_form_sub_category,
-                                PortalState.handle_edit_form_sub_category_change,
-                            ),
-                            rx.grid(
-                                _form_select("Listed Status", ["Listed", "Unlisted"], PortalState.edit_form_listed_status, PortalState.handle_edit_form_listed_status_change),
-                                _form_select("Suspended at Stock Exchange", ["Yes", "No"], PortalState.edit_form_suspended_at_stock_exchange, PortalState.handle_edit_form_suspended_change),
-                                columns="2", spacing="3", width="100%",
-                            ),
-                            rx.text("Financials", size="2", weight="bold", color="#667eea"),
-                            rx.grid(
-                                rx.vstack(
-                                    rx.text("Authorised Capital (₹)", size="2", weight="bold", color="#333"),
-                                    rx.el.input(
-                                        placeholder="e.g. 1000000",
-                                        value=PortalState.edit_form_authorised_capital,
-                                        on_change=PortalState.handle_edit_form_authorised_capital_change,
-                                        type="number", min="0", step="1",
-                                        style={"width": "100%", "padding": "0.625rem 0.875rem", "border_radius": "0.5rem", "border": "2px solid #d0d0d0", "background_color": "white", "font_size": "0.95rem", "color": "black", "outline": "none", "box_sizing": "border-box"},
-                                    ),
-                                    spacing="1", width="100%",
-                                ),
-                                rx.vstack(
-                                    rx.text("Paid Up Capital (₹)", size="2", weight="bold", color="#333"),
-                                    rx.el.input(
-                                        placeholder="e.g. 500000",
-                                        value=PortalState.edit_form_paid_up_capital,
-                                        on_change=PortalState.handle_edit_form_paid_up_capital_change,
-                                        type="number", min="0", step="1",
-                                        style={"width": "100%", "padding": "0.625rem 0.875rem", "border_radius": "0.5rem", "border": "2px solid #d0d0d0", "background_color": "white", "font_size": "0.95rem", "color": "black", "outline": "none", "box_sizing": "border-box"},
-                                    ),
-                                    spacing="1", width="100%",
-                                ),
-                                columns="2", spacing="3", width="100%",
-                            ),
-                            _form_input("Number of Members", "e.g. 7", PortalState.edit_form_number_of_members, PortalState.handle_edit_form_number_of_members_change),
-                            rx.text("Important Dates", size="2", weight="bold", color="#667eea"),
-                            rx.grid(
-                                _form_date_input("Date of Incorporation", PortalState.edit_form_doi, PortalState.handle_edit_form_doi_change),
-                                _form_date_input("Date of Last AGM", PortalState.edit_form_date_of_last_agm, PortalState.handle_edit_form_date_of_last_agm_change),
-                                _form_date_input("Date of Balance Sheet", PortalState.edit_form_date_of_balance_sheet, PortalState.handle_edit_form_date_of_balance_sheet_change),
-                                columns="2", spacing="3", width="100%",
-                            ),
-                            rx.text("Contact & Address", size="2", weight="bold", color="#667eea"),
-                            rx.grid(
-                                _form_input("Email Address", "e.g. company@example.com", PortalState.edit_form_email, PortalState.handle_edit_form_email_change, "email"),
-                                _form_input("Phone", "e.g. 022-12345678", PortalState.edit_form_phone, PortalState.handle_edit_form_phone_change),
-                                columns="2", spacing="3", width="100%",
-                            ),
-                            _form_textarea("Registered Address", "Building/Street, Area", PortalState.edit_form_address, PortalState.handle_edit_form_address_change),
-                            rx.grid(
-                                _form_input("Pin Code", "e.g. 400001", PortalState.edit_form_pin_code, PortalState.handle_edit_form_pin_code_change),
-                                _form_input("Country", "e.g. India", PortalState.edit_form_country, PortalState.handle_edit_form_country_change),
-                                columns="2", spacing="3", width="100%",
-                            ),
-                        ),
-                    ),
+
+                    # Company Details / Auditor Details tabs
+                    edit_company_tabs(),
+
+                    # Error message
                     rx.cond(
                         PortalState.edit_form_error != "",
                         rx.box(
                             rx.hstack(
-                                rx.icon("circle-alert", size=16, color="#dc2626"),
-                                rx.text(PortalState.edit_form_error, size="2", color="#dc2626"),
+                                rx.icon(
+                                    "circle-alert",
+                                    size=16,
+                                    color="#dc2626",
+                                ),
+                                rx.text(
+                                    PortalState.edit_form_error,
+                                    size="2",
+                                    color="#dc2626",
+                                ),
                                 spacing="2",
                             ),
                             padding="0.75rem",
@@ -3274,29 +5810,39 @@ def edit_company_dialog() -> rx.Component:
                             width="100%",
                         ),
                     ),
-                    rx.hstack(
-                        rx.button(
-                            "Cancel",
-                            on_click=PortalState.close_edit_company_form,
-                            variant="outline",
-                            color_scheme="gray",
-                            size="3",
+
+                    # Footer buttons
+                    rx.cond(
+                        (PortalState.edit_company_tab == "company")
+                        | (PortalState.edit_company_tab == "auditor"),
+                        rx.hstack(
+                            rx.button(
+                                "Cancel",
+                                on_click=PortalState.close_edit_company_form,
+                                variant="outline",
+                                color_scheme="gray",
+                                size="3",
+                            ),
+                            rx.button(
+                                rx.hstack(
+                                    rx.icon("save", size=16),
+                                    rx.text("Save Changes"),
+                                    spacing="2",
+                                ),
+                                on_click=PortalState.save_edit_company,
+                                background="linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                                color="white",
+                                size="3",
+                            ),
+                            spacing="3",
+                            justify="end",
+                            width="100%",
+                            padding_top="0.5rem",
                         ),
-                        rx.button(
-                            rx.hstack(rx.icon("save", size=16), rx.text("Save Changes"), spacing="2"),
-                            on_click=PortalState.save_edit_company,
-                            background="linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-                            color="white",
-                            size="3",
-                        ),
-                        spacing="3",
-                        justify="end",
-                        width="100%",
-                        padding_top="0.5rem",
+                        rx.fragment(),
                     ),
-                    spacing="4",
-                    width="100%",
                 ),
+
                 background="white",
                 border_radius="0.75rem",
                 padding="2rem",
@@ -3306,6 +5852,7 @@ def edit_company_dialog() -> rx.Component:
                 overflow_y="auto",
                 box_shadow="0 20px 60px rgba(0,0,0,0.3)",
             ),
+
             position="fixed",
             top="0",
             left="0",
@@ -3318,7 +5865,334 @@ def edit_company_dialog() -> rx.Component:
             justify_content="center",
         ),
     )
+def share_capital_tab() -> rx.Component:
+    return rx.vstack(
+        # ── Header ─────────────────────────────────────
+        rx.hstack(
+            rx.icon(
+                "landmark",
+                size=24,
+                color="#667eea",
+            ),
+            rx.heading(
+                "Share Capital",
+                size="5",
+                weight="bold",
+            ),
+            spacing="2",
+            align_items="center",
+        ),
 
+        rx.divider(),
+
+        # ── Share Capital Type ─────────────────────────
+        rx.vstack(
+            rx.text(
+                "Share Capital Type",
+                size="2",
+                weight="bold",
+                color="#555",
+            ),
+
+            rx.select(
+                [
+                    "Equity Share Capital",
+                    "Preference Share Capital",
+                ],
+                value=rx.cond(
+                    PortalState.share_capital_type == "EQUITY",
+                    "Equity Share Capital",
+                    "Preference Share Capital",
+                ),
+                on_change=PortalState.set_share_capital_type,
+                width="100%",
+            ),
+
+            spacing="1",
+            width="100%",
+        ),
+
+        # ── Overall Capital ───────────────────────────
+        rx.vstack(
+            rx.text(
+                rx.cond(
+                    PortalState.share_capital_type == "EQUITY",
+                    "Equity Share Capital",
+                    "Preference Share Capital",
+                ),
+                size="4",
+                weight="bold",
+                color="#333",
+            ),
+
+            rx.text(
+                "Overall Share Capital",
+                size="3",
+                weight="bold",
+                color="#667eea",
+            ),
+
+            rx.grid(
+                rx.text(
+                    "",
+                    weight="bold",
+                ),
+
+                rx.text(
+                    "Authorized Capital",
+                    weight="bold",
+                    align="center",
+                ),
+
+                rx.text(
+                    "Paid Up Capital",
+                    weight="bold",
+                    align="center",
+                ),
+
+                rx.text(
+                    rx.cond(
+                        PortalState.share_capital_type == "EQUITY",
+                        "No. of Equity Shares",
+                        "No. of Preference Shares",
+                    ),
+                    size="2",
+                ),
+
+                rx.input(
+                    value=PortalState.share_capital_authorized_shares,
+                    on_change=PortalState.set_share_capital_authorized_shares,
+                    type="number",
+                    placeholder="Enter number",
+                ),
+
+                rx.input(
+                    value=PortalState.share_capital_paid_up_shares,
+                    on_change=PortalState.set_share_capital_paid_up_shares,
+                    type="number",
+                    placeholder="Enter number",
+                ),
+
+                rx.text(
+                    "Total Amount",
+                    size="2",
+                ),
+
+                rx.input(
+                    value=PortalState.share_capital_authorized_amount,
+                    on_change=PortalState.set_share_capital_authorized_amount,
+                    type="number",
+                    placeholder="Enter amount",
+                ),
+
+                rx.input(
+                    value=PortalState.share_capital_paid_up_amount,
+                    on_change=PortalState.set_share_capital_paid_up_amount,
+                    type="number",
+                    placeholder="Enter amount",
+                ),
+
+                columns="3",
+                spacing="3",
+                width="100%",
+            ),
+
+            spacing="3",
+            width="100%",
+        ),
+
+        rx.divider(),
+
+        # ── Class A ────────────────────────────────────
+        rx.hstack(
+            rx.button(
+                "Class A",
+                on_click=PortalState.toggle_class_a,
+                color_scheme="violet",
+                variant="outline",
+                size="1",
+            )
+        ),
+
+        rx.cond(
+            PortalState.show_class_a,
+            share_capital_class_section("Class A", "A"),
+            rx.fragment(),
+        ),
+
+        rx.divider(),
+
+        # ── Class B ────────────────────────────────────
+        rx.hstack(
+            rx.button(
+                "Class B",
+                on_click=PortalState.toggle_class_b,
+                color_scheme="violet",
+                variant="outline",
+                size="1",
+            )
+        ),
+
+        rx.cond(
+            PortalState.show_class_b,
+            share_capital_class_section("Class B", "B"),
+            rx.fragment(),
+        ),
+
+        # ── Buttons ────────────────────────────────────
+        rx.hstack(
+            rx.button(
+                "Cancel",
+                on_click=PortalState.close_share_capital,
+                variant="outline",
+                color_scheme="gray",
+            ),
+            rx.button(
+                rx.hstack(
+                    rx.icon("save", size=16),
+                    rx.text("Save Share Capital"),
+                    spacing="2",
+                ),
+                on_click=PortalState.save_share_capital,
+                color_scheme="violet",
+            ),
+            spacing="3",
+            justify="end",
+            width="100%",
+        ),
+
+        spacing="4",
+        width="100%",
+    )
+    
+def share_capital_class_section(
+    title: str,
+    class_name: str,
+) -> rx.Component:
+
+    if class_name == "A":
+        authorized_shares = PortalState.share_capital_a_authorized_shares
+        paid_up_shares = PortalState.share_capital_a_paid_up_shares
+        authorized_nominal = PortalState.share_capital_a_authorized_nominal
+        paid_up_nominal = PortalState.share_capital_a_paid_up_nominal
+        authorized_amount = PortalState.share_capital_a_authorized_amount
+        paid_up_amount = PortalState.share_capital_a_paid_up_amount
+
+        on_authorized_shares = PortalState.set_share_capital_a_authorized_shares
+        on_paid_up_shares = PortalState.set_share_capital_a_paid_up_shares
+        on_authorized_nominal = PortalState.set_share_capital_a_authorized_nominal
+        on_paid_up_nominal = PortalState.set_share_capital_a_paid_up_nominal
+        on_authorized_amount = PortalState.set_share_capital_a_authorized_amount
+        on_paid_up_amount = PortalState.set_share_capital_a_paid_up_amount
+
+    else:
+        authorized_shares = PortalState.share_capital_b_authorized_shares
+        paid_up_shares = PortalState.share_capital_b_paid_up_shares
+        authorized_nominal = PortalState.share_capital_b_authorized_nominal
+        paid_up_nominal = PortalState.share_capital_b_paid_up_nominal
+        authorized_amount = PortalState.share_capital_b_authorized_amount
+        paid_up_amount = PortalState.share_capital_b_paid_up_amount
+
+        on_authorized_shares = PortalState.set_share_capital_b_authorized_shares
+        on_paid_up_shares = PortalState.set_share_capital_b_paid_up_shares
+        on_authorized_nominal = PortalState.set_share_capital_b_authorized_nominal
+        on_paid_up_nominal = PortalState.set_share_capital_b_paid_up_nominal
+        on_authorized_amount = PortalState.set_share_capital_b_authorized_amount
+        on_paid_up_amount = PortalState.set_share_capital_b_paid_up_amount
+
+    return rx.vstack(
+        rx.text(
+            title,
+            size="3",
+            weight="bold",
+            color="#667eea",
+        ),
+
+        rx.grid(
+            rx.text(""),
+            rx.text(
+                "Authorized Capital",
+                weight="bold",
+                align="center",
+            ),
+            rx.text(
+                "Paid Up Capital",
+                weight="bold",
+                align="center",
+            ),
+
+            # No. of Shares
+            rx.text(
+                rx.cond(
+                    PortalState.share_capital_type == "EQUITY",
+                    "No. of Equity Shares",
+                    "No. of Preference Shares",
+                ),
+                size="2",
+            ),
+
+            rx.input(
+                value=authorized_shares,
+                on_change=on_authorized_shares,
+                type="number",
+                placeholder="Enter number",
+            ),
+
+            rx.input(
+                value=paid_up_shares,
+                on_change=on_paid_up_shares,
+                type="number",
+                placeholder="Enter number",
+            ),
+
+            # Nominal Value
+            rx.text(
+                "Nominal Value per share",
+                size="2",
+            ),
+
+            rx.input(
+                value=authorized_nominal,
+                on_change=on_authorized_nominal,
+                type="number",
+                placeholder="Enter value",
+            ),
+
+            rx.input(
+                value=paid_up_nominal,
+                on_change=on_paid_up_nominal,
+                type="number",
+                placeholder="Enter value",
+            ),
+
+            # Total Amount
+            rx.text(
+                "Total Amount",
+                size="2",
+            ),
+
+            rx.input(
+                value=authorized_amount,
+                on_change=on_authorized_amount,
+                type="number",
+                placeholder="Enter amount",
+            ),
+
+            rx.input(
+                value=paid_up_amount,
+                on_change=on_paid_up_amount,
+                type="number",
+                placeholder="Enter amount",
+            ),
+
+            columns="3",
+            spacing="3",
+            width="100%",
+        ),
+
+        spacing="3",
+        width="100%",
+    )
 
 def companies_table() -> rx.Component:
     return rx.table.root(
@@ -3326,6 +6200,7 @@ def companies_table() -> rx.Component:
             rx.table.row(
                 rx.table.column_header_cell("CIN", font_weight="700", color="white", font_size="0.95rem"),
                 rx.table.column_header_cell("Company Name", font_weight="700", color="white", font_size="0.95rem"),
+                rx.table.column_header_cell("PAN", font_weight="700", color="white", font_size="0.95rem"),
                 rx.table.column_header_cell("Class", font_weight="700", color="white", font_size="0.95rem"),
                 rx.table.column_header_cell("Category", font_weight="700", color="white", font_size="0.95rem"),
                 rx.table.column_header_cell("Sub Category", font_weight="700", color="white", font_size="0.95rem"),
@@ -3342,6 +6217,17 @@ def companies_table() -> rx.Component:
                 lambda item: rx.table.row(
                     rx.table.cell(rx.text(item["cin"], font_weight="600", color="#1a1a1a", size="3")),
                     rx.table.cell(rx.text(item["name"], font_weight="500", color="#333", size="3")),
+                    rx.table.cell(
+                        rx.text(
+                            rx.cond(
+                                PortalState.visible_company_id == item["id"],
+                                item["pan"],
+                                "**********",
+                            ),
+                            color="#555",
+                            size="2",
+                        )
+                    ),
                     rx.table.cell(rx.badge(item["class"], variant="outline", color_scheme="violet")),
                     rx.table.cell(rx.badge(item["category"], variant="outline", color_scheme="cyan")),
                     rx.table.cell(rx.text(item["sub_category"], color="#555", size="2")),
@@ -3349,12 +6235,33 @@ def companies_table() -> rx.Component:
                     rx.table.cell(
                         rx.cond(
                             item["email"] != "",
-                            rx.link(item["email"], href=f"mailto:{item['email']}", size="2", color="#667eea"),
+                            rx.cond(
+                                PortalState.visible_company_id == item["id"],
+                                rx.link(
+                                    item["email"],
+                                    href=f"mailto:{item['email']}",
+                                    size="2",
+                                    color="#667eea",
+                                ),
+                                rx.text(
+                                    "**********",
+                                    size="2",
+                                    color="#555",
+                                ),
+                            ),
                             rx.text("-", color="#aaa", size="2"),
                         )
                     ),
                     rx.table.cell(
                         rx.hstack(
+                            # View
+                            rx.button(
+                                rx.icon("eye", size=14),
+                                on_click=PortalState.toggle_company_sensitive_data(item["id"]),
+                                color_scheme="green",
+                                variant="ghost",
+                                size="1",
+                            ),
                             rx.button(
                                 rx.icon("users", size=14),
                                 on_click=PortalState.open_manage_directors(item["id"]),
@@ -3366,7 +6273,7 @@ def companies_table() -> rx.Component:
                                 (PortalState.role == "ADMIN") | (PortalState.role == "EDITOR"),
                                 rx.button(
                                     rx.icon("pencil", size=14),
-                                    on_click=PortalState.open_edit_company_form(item["id"]),
+                                    on_click=PortalState.open_edit_company_with_tabs(item["id"]),
                                     color_scheme="blue",
                                     variant="ghost",
                                     size="1",
@@ -3413,6 +6320,18 @@ def companies_table() -> rx.Component:
                                                         rx.hstack(
                                                             rx.text("Name:", size="2", weight="bold", color="#555"),
                                                             rx.text(item["name"], size="2", color="#1a1a1a"),
+                                                            spacing="2",
+                                                        ),
+                                                        rx.hstack(
+                                                            rx.text("PAN:", size="2", weight="bold", color="#555"),
+                                                            rx.text(
+                                                            rx.cond(
+                                                                PortalState.visible_company_id == item["id"],
+                                                                item["pan"],
+                                                                "**********",
+                                                            ),
+                                                            size="2", color="#1a1a1a"
+                                                        ),
                                                             spacing="2",
                                                         ),
                                                         padding="0.75rem",
@@ -3945,8 +6864,9 @@ def directors_table() -> rx.Component:
                                 color_scheme="blue",
                                 variant="ghost",
                                 size="1",
+                                spacing="1",
                             ),
-                        ),
+                        ),                
                         rx.cond(
                             PortalState.role == "ADMIN",
                             rx.dialog.root(
@@ -3956,6 +6876,7 @@ def directors_table() -> rx.Component:
                                         color_scheme="red",
                                         variant="ghost",
                                         size="1",
+                                        spacing="1",
                                     ),
                                 ),
                                     rx.dialog.content(
@@ -4669,6 +7590,7 @@ def add_llp_dialog() -> rx.Component:
                         columns="2", spacing="3", width="100%",
                     ),
                     rx.cond(~PortalState.form_llp_is_non_client,rx.vstack(
+                    _form_input("PAN", "e.g. AAAAA0000A", PortalState.form_llp_pan, PortalState.handle_form_llp_pan_change),
                     rx.grid(
                         _form_input("ROC Name", "e.g. ROC Bangalore", PortalState.form_llp_roc_name, PortalState.handle_form_llp_roc_name_change),
                         _form_date_input("Date of Incorporation", PortalState.form_llp_doi, PortalState.handle_form_llp_doi_change),
@@ -4781,6 +7703,7 @@ def edit_llp_dialog() -> rx.Component:
                         columns="2", spacing="3", width="100%",
                     ),
                     rx.cond(~PortalState.edit_form_llp_is_non_client,rx.vstack(
+                    _form_input("PAN", "e.g. AAAAA0000A", PortalState.edit_form_llp_pan, PortalState.handle_edit_form_llp_pan_change),
                     rx.grid(
                         _form_input("ROC Name", "e.g. ROC Bangalore", PortalState.edit_form_llp_roc_name, PortalState.handle_edit_form_llp_roc_name_change),
                         _form_date_input("Date of Incorporation", PortalState.edit_form_llp_doi, PortalState.handle_edit_form_llp_doi_change),
@@ -4872,6 +7795,7 @@ def llps_table() -> rx.Component:
             rx.table.row(
                 rx.table.column_header_cell("LLPIN", font_weight="700", color="white", font_size="0.95rem"),
                 rx.table.column_header_cell("LLP Name", font_weight="700", color="white", font_size="0.95rem"),
+                rx.table.column_header_cell("PAN", font_weight="700", color="white", font_size="0.95rem"),
                 rx.table.column_header_cell("ROC Name", font_weight="700", color="white", font_size="0.95rem"),
                 rx.table.column_header_cell("Date of Incorp.", font_weight="700", color="white", font_size="0.95rem"),
                 rx.table.column_header_cell("Email", font_weight="700", color="white", font_size="0.95rem"),
@@ -4886,6 +7810,7 @@ def llps_table() -> rx.Component:
                 lambda item: rx.table.row(
                     rx.table.cell(rx.text(item["llpin"], font_weight="600", color="#1a1a1a", size="3")),
                     rx.table.cell(rx.text(item["name"], font_weight="500", color="#333", size="3")),
+                    rx.table.cell(rx.text("**********", color="#555", size="2")),
                     rx.table.cell(
                         rx.cond(
                             item["roc_name"] != "",

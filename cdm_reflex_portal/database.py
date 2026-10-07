@@ -3,9 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import bcrypt
-from sqlalchemy import Boolean, DateTime, Float, String, Text, UniqueConstraint, create_engine, func, text
+from sqlalchemy import Boolean, DateTime, Float, Integer,Numeric,String, Text, UniqueConstraint,ForeignKey,UniqueConstraint, create_engine, func, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
-
+from datetime import datetime,timezone
 
 def _normalize_bool_flag(value) -> bool:
     if isinstance(value, bool):
@@ -51,6 +51,7 @@ class Company(Base):
     name: Mapped[str] = mapped_column(String(140), nullable=False)
     company_type: Mapped[str] = mapped_column(String(80), nullable=False)
     company_class: Mapped[str] = mapped_column(String(120), nullable=False)
+    pan: Mapped[str | None] = mapped_column(String(20), nullable=True)
     non_client: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("0"), default=False)
     sub_category: Mapped[str | None] = mapped_column(String(120), nullable=True)
     status: Mapped[str] = mapped_column(String(40), default="active", nullable=False)
@@ -113,6 +114,7 @@ class LLP(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     llpin: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(140), nullable=False)
+    pan: Mapped[str | None] = mapped_column(String(20), nullable=True)
     status: Mapped[str] = mapped_column(String(40), default="active", nullable=False)
     non_client: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("0"), default=False)
     updated_at: Mapped[str] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
@@ -150,7 +152,326 @@ class CompanyLLP(Base):
     llp_id: Mapped[int] = mapped_column(nullable=False)
     relationship_note: Mapped[str | None] = mapped_column(String(140), nullable=True)
 
+class ShareCapital(Base):
+    __tablename__ = "share_capital"
 
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+
+    company_id: Mapped[str] = mapped_column(
+        ForeignKey("companies.id"),
+        nullable=False
+    )
+
+    capital_type: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True
+    )
+
+    create_dt: Mapped[datetime] = mapped_column(
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False
+    )
+
+    update_dt: Mapped[datetime] = mapped_column(
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False
+    )
+
+class ShareCapitalDetails(Base):
+    __tablename__ = "share_capital_details"
+
+    id: Mapped[int] = mapped_column(
+        primary_key=True,
+        autoincrement=True
+    )
+
+    share_capital_id: Mapped[int] = mapped_column(
+        ForeignKey("share_capital.id"),
+        nullable=False
+    )
+
+    class_type: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False
+    )
+
+    authorized_shares: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True
+    )
+
+    paid_up_shares: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True
+    )
+
+    authorized_nominal_value: Mapped[float | None] = mapped_column(
+        Integer,
+        nullable=True
+    )
+
+    paid_up_nominal_value: Mapped[float | None] = mapped_column(
+        Integer,
+        nullable=True
+    )
+
+    authorized_total_amount: Mapped[float | None] = mapped_column(
+        Integer,
+        nullable=True
+    )
+
+    paid_up_total_amount: Mapped[float | None] = mapped_column(
+        Integer,
+        nullable=True
+    )
+
+
+class AuditorMaster(Base):
+    __tablename__ = "auditor_master"
+
+    id: Mapped[int] = mapped_column(
+        primary_key=True,
+        autoincrement=True
+    )
+
+    company_id: Mapped[int] = mapped_column(
+        ForeignKey("companies.id"),
+        nullable=False
+    )
+
+    srn: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False
+    )
+
+    auditor_category: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False
+    )
+
+    # Firm Details
+    firm_name: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True
+    )
+
+    firm_membership_no: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True
+    )
+
+    firm_pan: Mapped[str | None] = mapped_column(
+        String(10),
+        nullable=True
+    )
+
+    firm_email: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True
+    )
+
+    # Firm Address
+    address: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True
+    )
+
+    country: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True
+    )
+
+    state: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True
+    )
+
+    city: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True
+    )
+
+    pin_code: Mapped[str | None] = mapped_column(
+        String(10),
+        nullable=True
+    )
+
+    # Auditor / Partner Details
+    partner_membership_no: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True
+    )
+
+    auditor_name: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False
+    )
+
+    auditor_pan: Mapped[str | None] = mapped_column(
+        String(10),
+        nullable=True
+    )
+
+    mobile: Mapped[str | None] = mapped_column(
+        String(20),
+        nullable=True
+    )
+
+    email: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True
+    )
+
+    designation: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True
+    )
+
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True
+    )
+
+
+
+class ShareholderMaster(Base):
+    __tablename__ = "shareholder_master"
+
+    id: Mapped[int] = mapped_column(
+        primary_key=True,
+        autoincrement=True
+    )
+
+    company_id: Mapped[int] = mapped_column(
+        ForeignKey("companies.id"),
+        nullable=False
+    )
+
+    # Member Details
+    name_of_member: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False
+    )
+
+    address: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True
+    )
+
+    email: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True
+    )
+
+    registration_number_cin: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True
+    )
+
+    father_mother_spouse_name: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True
+    )
+
+    status: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True
+    )
+
+    occupation: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True
+    )
+
+    pan: Mapped[str | None] = mapped_column(
+        String(20),
+        nullable=True
+    )
+
+    nationality: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True
+    )
+
+    # Membership Details
+    date_of_becoming_member: Mapped[str | None] = mapped_column(
+        String(20),
+        nullable=True
+    )
+
+    date_of_declaration_u_s_89: Mapped[str | None] = mapped_column(
+        String(20),
+        nullable=True
+    )
+
+    beneficial_owner_name_address: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True
+    )
+
+    date_of_receipt_of_nomination: Mapped[str | None] = mapped_column(
+        String(20),
+        nullable=True
+    )
+
+    nominee_name_address: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True
+    )
+
+    date_of_cessation_of_membership: Mapped[str | None] = mapped_column(
+        String(20),
+        nullable=True
+    )
+
+    # Share / Allotment / Transfer Details
+    allotment_transfer_no: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True
+    )
+
+    date_of_allotment_transfer: Mapped[str | None] = mapped_column(
+        String(20),
+        nullable=True
+    )
+
+    number_of_shares: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True
+    )
+
+    distinctive_numbers: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True
+    )
+
+    folio_of_transferor: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True
+    )
+
+    name_of_transferor: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True
+    )
+
+    date_of_issue_endorsement: Mapped[str | None] = mapped_column(
+        String(20),
+        nullable=True
+    )
+
+    certificate_no: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True
+    )
+
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True
+    )
 def hash_password(value: str) -> str:
     return bcrypt.hashpw(value.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
@@ -166,6 +487,7 @@ def init_db() -> None:
         cols = [row[1] for row in conn.execute(text("PRAGMA table_info(companies)")).fetchall()]
         migrations = [
             ("sub_category", "ALTER TABLE companies ADD COLUMN sub_category VARCHAR(120)"),
+            ("pan", "ALTER TABLE companies ADD COLUMN pan VARCHAR(20)"),
             ("non_client", "ALTER TABLE companies ADD COLUMN non_client BOOLEAN NOT NULL DEFAULT 0"),
             ("date_of_incorporation", "ALTER TABLE companies ADD COLUMN date_of_incorporation VARCHAR(20)"),
             ("email", "ALTER TABLE companies ADD COLUMN email VARCHAR(254)"),
@@ -211,6 +533,7 @@ def init_db() -> None:
         # Migrate: add non_client to llps table when missing
         llp_cols = [row[1] for row in conn.execute(text("PRAGMA table_info(llps)")).fetchall()]
         llp_migrations = [
+            ("pan", "ALTER TABLE llps ADD COLUMN pan VARCHAR(20)"),
             ("non_client", "ALTER TABLE llps ADD COLUMN non_client BOOLEAN NOT NULL DEFAULT 0"),
         ]
         for col_name, ddl in llp_migrations:
