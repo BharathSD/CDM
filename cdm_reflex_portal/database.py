@@ -3,9 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import bcrypt
-from sqlalchemy import Boolean, DateTime, Float, String, Text, UniqueConstraint, create_engine, func, text
+from sqlalchemy import Boolean, DateTime, Float, Integer,Numeric,String, Text, UniqueConstraint,ForeignKey,UniqueConstraint, create_engine, func, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
-
+from datetime import datetime,timezone
 
 def _normalize_bool_flag(value) -> bool:
     if isinstance(value, bool):
@@ -152,6 +152,79 @@ class CompanyLLP(Base):
     llp_id: Mapped[int] = mapped_column(nullable=False)
     relationship_note: Mapped[str | None] = mapped_column(String(140), nullable=True)
 
+class ShareCapital(Base):
+    __tablename__ = "share_capital"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+
+    company_id: Mapped[str] = mapped_column(
+        ForeignKey("companies.id"),
+        nullable=False
+    )
+
+    capital_type: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True
+    )
+
+    create_dt: Mapped[datetime] = mapped_column(
+        default=datetime.now(timezone.utc),
+        nullable=False
+    )
+
+    update_dt: Mapped[datetime] = mapped_column(
+        default=datetime.now(timezone.utc),
+        onupdate=datetime.now(timezone.utc),
+        nullable=False
+    )
+
+class ShareCapitalDetails(Base):
+    __tablename__ = "share_capital_details"
+
+    id: Mapped[int] = mapped_column(
+        primary_key=True,
+        autoincrement=True
+    )
+
+    share_capital_id: Mapped[int] = mapped_column(
+        ForeignKey("share_capital.id"),
+        nullable=False
+    )
+
+    class_type: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False
+    )
+
+    authorized_shares: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True
+    )
+
+    paid_up_shares: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True
+    )
+
+    authorized_nominal_value: Mapped[float | None] = mapped_column(
+        Integer,
+        nullable=True
+    )
+
+    paid_up_nominal_value: Mapped[float | None] = mapped_column(
+        Integer,
+        nullable=True
+    )
+
+    authorized_total_amount: Mapped[float | None] = mapped_column(
+        Integer,
+        nullable=True
+    )
+
+    paid_up_total_amount: Mapped[float | None] = mapped_column(
+        Integer,
+        nullable=True
+    )
 
 def hash_password(value: str) -> str:
     return bcrypt.hashpw(value.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
